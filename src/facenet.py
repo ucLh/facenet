@@ -103,7 +103,7 @@ FLIP = 16
 def create_input_pipeline(input_queue, image_size, nrof_preprocess_threads, batch_size_placeholder):
     images_and_labels_list = []
     for _ in range(nrof_preprocess_threads):
-        filenames, label, control = input_queue.dequeue()
+        filenames, label, control, smaug_output, smaug_label = input_queue.dequeue()
         images = []
         for filename in tf.unstack(filenames):
             file_contents = tf.read_file(filename)
@@ -126,6 +126,8 @@ def create_input_pipeline(input_queue, image_size, nrof_preprocess_threads, batc
             #pylint: disable=no-member
             image.set_shape(image_size + (3,))
             images.append(image)
+        images.append(smaug_output)
+        label = tf.concat([label, smaug_label], 0)
         images_and_labels_list.append([images, label])
 
     image_batch, label_batch = tf.train.batch_join(
