@@ -3,7 +3,7 @@ from __future__ import division
 from __future__ import print_function
 
 from collections import deque
-
+from facenet import get_image_paths_and_labels
 import tensorflow as tf
 import random
 
@@ -141,6 +141,7 @@ class SmaugImageData:
         self.label_paths = []
         self._create_pair_paths()
         self._create_label_paths()
+        _, self.facenet_labels = get_image_paths_and_labels(image_classes)
 
         self._img_num = len(image_classes)
 
@@ -173,7 +174,6 @@ class SmaugImageData:
     def _create_pair_paths(self):
         for path in self.image_paths:
             new_path = self._change_dataset_name_in_path(path, self.pair_dataset_name)
-            print(new_path)
             self.pair_paths.append(new_path)
 
     def _create_label_paths(self):
@@ -193,12 +193,13 @@ class SmaugImageData:
         dataset_a = tf.data.Dataset.from_tensor_slices(self.image_paths)
         dataset_b = tf.data.Dataset.from_tensor_slices(self.pair_paths)
         labels = tf.data.Dataset.from_tensor_slices(self.label_paths)
+        facenet_labels = tf.data.Dataset.from_tensor_slices(self.facenet_labels)
 
         dataset_a = dataset_a.map(self._parse_func, num_parallel_calls=self.num_threads)
         dataset_b = dataset_b.map(self._parse_func, num_parallel_calls=self.num_threads)
         labels = labels.map(self._parse_func, num_parallel_calls=self.num_threads)
 
-        dataset = tf.data.Dataset.zip((dataset_a, dataset_b, labels))
+        dataset = tf.data.Dataset.zip((dataset_a, dataset_b, labels, facenet_labels))
 
         if self.shuffle:
             dataset = dataset.shuffle(self.buffer_size)
