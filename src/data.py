@@ -12,6 +12,7 @@ class ImageData:
 
     def __init__(self,
                  image_paths,
+                 labels,
                  session,
                  batch_size=1,
                  load_size=286,
@@ -23,6 +24,7 @@ class ImageData:
                  buffer_size=4092):
         self._sess = session
         self.image_paths = image_paths
+        self.labels = labels
         self.batch_size = batch_size
         self.load_size = load_size
         self.crop_size = crop_size
@@ -54,8 +56,10 @@ class ImageData:
 
     def _image_batch(self):
         dataset = tf.data.Dataset.from_tensor_slices(self.image_paths)
+        labels = tf.data.Dataset.from_tensor_slices(self.labels)
         dataset = dataset.map(self._parse_func, num_parallel_calls=self.num_threads)
 
+        dataset = dataset.zip((dataset, labels))
         if self.shuffle:
             dataset = dataset.shuffle(self.buffer_size)
 

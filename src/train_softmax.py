@@ -252,6 +252,8 @@ def main(args):
 
             smaug_dataset = SmaugImageData(train_set, image_list, 'small_winter', sess, load_size=180, crop_size=image_size[0])
 
+            # Copy of a validation set to fill smaug_output_placeholder during validation
+            val_dataset_copy = ImageData(val_image_list, val_label_list, sess, load_size=180, crop_size=image_size[0])
             if pretrained_model:
                 print('Restoring pretrained model: %s' % pretrained_model)
                 ckpt_dir_or_file = tf.train.latest_checkpoint(pretrained_model)
@@ -322,7 +324,8 @@ def main(args):
                              labels_placeholder, control_placeholder,
                              phase_train_placeholder, batch_size_placeholder,
                              stat, total_loss, regularization_losses, cross_entropy_mean, accuracy,
-                             args.validate_every_n_epochs, args.use_fixed_image_standardization)
+                             args.validate_every_n_epochs, args.use_fixed_image_standardization,
+                             val_dataset_copy, smaug_output_placeholder, smaug_facenet_label_placeholder)
                 stat['time_validate'][epoch - 1] = time.time() - t
 
                 # Save variables and the metagraph if it doesn't exist already
@@ -434,8 +437,8 @@ def train(args, sess, epoch, batch_number, image_list, label_list, index_dequeue
 
         feed_dict = {learning_rate_placeholder: lr, phase_train_placeholder: True,
                      batch_size_placeholder: args.batch_size,
-                     smaug_output_placeholder: merged_img[0], smaug_facenet_label_placeholder: facenet_label
-                     }
+                     smaug_output_placeholder: merged_img[0], smaug_facenet_label_placeholder: facenet_label}
+
         tensor_list = [loss, train_op, step, reg_losses, prelogits, cross_entropy_mean, learning_rate, prelogits_norm,
                        accuracy, prelogits_center_loss]
         if batch_number % 20 == 0:
@@ -482,7 +485,8 @@ def validate(args, sess, epoch, image_list, label_list, enqueue_op, image_paths_
              control_placeholder,
              phase_train_placeholder, batch_size_placeholder,
              stat, loss, regularization_losses, cross_entropy_mean, accuracy, validate_every_n_epochs,
-             use_fixed_image_standardization):
+             use_fixed_image_standardization,
+             val_dataset_copy, smaug_output_placeholder, smaug_facenet_label_placeholder):
     print('Running forward pass on validation set')
 
     nrof_batches = len(label_list) // args.lfw_batch_size
@@ -503,7 +507,9 @@ def validate(args, sess, epoch, image_list, label_list, enqueue_op, image_paths_
     # Training loop
     start_time = time.time()
     for i in range(nrof_batches):
-        feed_dict = {phase_train_placeholder: False, batch_size_placeholder: args.lfw_batch_size}
+        img, label = val_dataset_copy.batch()
+        feed_dict = {phase_train_placeholder: False, batch_size_placeholder: args.lfw_batch_size,
+                     smaug_output_placeholder: img, smaug_facenet_label_placeholder: label}
         loss_, cross_entropy_mean_, accuracy_ = sess.run([loss, cross_entropy_mean, accuracy], feed_dict=feed_dict)
         loss_array[i], xent_array[i], accuracy_array[i] = (loss_, cross_entropy_mean_, accuracy_)
         if i % 10 == 9:
@@ -638,7 +644,7 @@ def parse_arguments(argv):
     parser.add_argument('--image_size', type=int,
                         help='Image size (height, width) in pixels.', default=160)
     parser.add_argument('--epoch_size', type=int,
-                        help='Number of batches per epoch.', default=50)
+                        help='Number of batches per epoch.', default=10)
     parser.add_argument('--embedding_size', type=int,
                         help='Dimensionality of the embedding.', default=512)
     parser.add_argument('--random_crop',
@@ -704,7 +710,7 @@ def parse_arguments(argv):
     parser.add_argument('--lfw_dir', type=str,
                         help='Path to the data directory containing aligned face patches.', default='')
     parser.add_argument('--lfw_batch_size', type=int,
-                        help='Number of images to process in a batch in the LFW test set.', default=100)
+                        help='Number of images to process in a batch in the LFW test set.', default=1)
     parser.add_argument('--lfw_nrof_folds', type=int,
                         help='Number of folds to use for cross validation. Mainly used for testing.', default=10)
     parser.add_argument('--lfw_distance_metric', type=int,
