@@ -52,6 +52,7 @@ import utils
 def main(args):
     network = importlib.import_module(args.model_def)
     image_size = (args.image_size, args.image_size)
+    crop_delta = 16
 
     subdir = datetime.strftime(datetime.now(), '%Y%m%d-%H%M%S')
     log_dir = os.path.join(os.path.expanduser(args.logs_base_dir), subdir)
@@ -212,7 +213,6 @@ def main(args):
         # Create session
         gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=args.gpu_memory_fraction)
         sess = tf.Session(config=tf.ConfigProto(gpu_options=gpu_options, log_device_placement=False))
-        summary_writer = tf.summary.FileWriter(log_dir, sess.graph)
 
         # define smart augmentation operations
         smaug_input_placeholder = tf.placeholder(tf.float32, shape=[None, image_size[0], image_size[1], 6])
@@ -244,16 +244,18 @@ def main(args):
         # Start running operations on the Graph.
         sess.run(tf.global_variables_initializer())
         sess.run(tf.local_variables_initializer())
-
+        summary_writer = tf.summary.FileWriter(log_dir, sess.graph)
         coord = tf.train.Coordinator()
         tf.train.start_queue_runners(coord=coord, sess=sess)
 
         with sess.as_default():
 
-            smaug_dataset = SmaugImageData(train_set, image_list, 'small_winter', sess, load_size=180, crop_size=image_size[0])
+            smaug_dataset = SmaugImageData(train_set, image_list, args.pair_data_name, sess,
+                                           load_size=image_size[0]+crop_delta, crop_size=image_size[0])
 
             # Copy of a validation set to fill smaug_output_placeholder during validation
-            val_dataset_copy = ImageData(val_image_list, val_label_list, sess, load_size=180, crop_size=image_size[0])
+            val_dataset_copy = ImageData(val_image_list, val_label_list, sess,
+                                         load_size=image_size[0], crop_size=image_size[0])
             if pretrained_model:
                 print('Restoring pretrained model: %s' % pretrained_model)
                 ckpt_dir_or_file = tf.train.latest_checkpoint(pretrained_model)
@@ -312,7 +314,7 @@ def main(args):
                              smaug_dataset, smaug_input_placeholder, smaug_output,
                              smaug_image_label_placeholder, smaug_facenet_label_placeholder,
                              loss_alpha, loss_beta, facenet_loss_placeholder, total_smaug_loss,
-                             smaug_train_op, smaug_output_placeholder, smaug_summary_op)
+                             smaug_train_op, smaug_output_placeholder, smaug_summary_op, image_batch)
                 stat['time_train'][epoch - 1] = time.time() - t
 
                 if not cont:
@@ -396,7 +398,7 @@ def train(args, sess, epoch, batch_number, image_list, label_list, index_dequeue
           smaug_dataset, smaug_input_placeholder, smaug_output,
           smaug_image_label_placeholder, smaug_facenet_label_placeholder,
           loss_alpha, loss_beta, facenet_loss_placeholder, total_smaug_loss,
-          smaug_train_op, smaug_output_placeholder, smaug_summary_op):
+          smaug_train_op, smaug_output_placeholder, smaug_summary_op, image_batch):
 
     if args.learning_rate > 0.0:
         lr = args.learning_rate
@@ -631,9 +633,9 @@ def parse_arguments(argv):
     parser.add_argument('--data_dir', type=str,
                         help='Path to the data directory containing aligned face patches.',
                         default='../datasets/small/')
-    parser.add_argument('--pair_data_dir', type=str,
-                        help='Path to pair images for Smart Augmentation merging.',
-                        default='../datasets/small/')
+    parser.add_argument('--pair_data_name', type=str,
+                        help='Name of dataset for Smart Augmentation merging.',
+                        default='small_winter')
     parser.add_argument('--model_def', type=str,
                         help='Model definition. Points to a module containing the definition of the inference graph.',
                         default='models.inception_resnet_v1')
@@ -642,7 +644,7 @@ def parse_arguments(argv):
     parser.add_argument('--batch_size', type=int,
                         help='Number of images to process in a batch.', default=20)
     parser.add_argument('--image_size', type=int,
-                        help='Image size (height, width) in pixels.', default=160)
+                        help='Image size (height, width) in pixels.', default=240)
     parser.add_argument('--epoch_size', type=int,
                         help='Number of batches per epoch.', default=10)
     parser.add_argument('--embedding_size', type=int,

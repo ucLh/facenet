@@ -102,29 +102,35 @@ FIXED_STANDARDIZATION = 8
 FLIP = 16
 def create_input_pipeline(input_queue, image_size, nrof_preprocess_threads, batch_size_placeholder):
     images_and_labels_list = []
+    load_size = image_size[0] + 30
     for _ in range(nrof_preprocess_threads):
         filenames, label, control = input_queue.dequeue()
         images = []
         for filename in tf.unstack(filenames):
             file_contents = tf.read_file(filename)
-            image = tf.image.decode_image(file_contents, 3)
-            image = tf.cond(get_control_flag(control[0], RANDOM_ROTATE),
-                            lambda:tf.py_func(random_rotate_image, [image], tf.uint8), 
-                            lambda:tf.identity(image))
+            image = tf.image.decode_jpeg(file_contents, channels=3)
+            image = tf.image.resize_images(image, [load_size, load_size])
+            # normalization
+            image = (image - tf.reduce_min(image)) / (tf.reduce_max(image) - tf.reduce_min(image))
+            # image = tf.cond(get_control_flag(control[0], RANDOM_ROTATE),
+            #                 lambda:tf.py_func(random_rotate_image, [image], tf.uint8),
+            #                 lambda:tf.identity(image))
             image = tf.cond(get_control_flag(control[0], RANDOM_CROP), 
                             lambda:tf.random_crop(image, image_size + (3,)), 
-                            lambda:tf.image.resize_image_with_crop_or_pad(image, image_size[0], image_size[1]))
-            image = tf.cond(get_control_flag(control[0], RANDOM_FLIP),
-                            lambda:tf.image.random_flip_left_right(image),
-                            lambda:tf.identity(image))
-            image = tf.cond(get_control_flag(control[0], FIXED_STANDARDIZATION),
-                            lambda:(tf.cast(image, tf.float32) - 127.5)/128.0,
-                            lambda:tf.image.per_image_standardization(image))
-            image = tf.cond(get_control_flag(control[0], FLIP),
-                            lambda:tf.image.flip_left_right(image),
-                            lambda:tf.identity(image))
+                            lambda:tf.image.resize_images(image, image_size))
+            # image = tf.cond(get_control_flag(control[0], RANDOM_FLIP),
+            #                 lambda:tf.image.random_flip_left_right(image),
+            #                 lambda:tf.identity(image))
+            # image = tf.cond(get_control_flag(control[0], FIXED_STANDARDIZATION),
+            #                 lambda:(tf.cast(image, tf.float32) - 127.5)/128.0,
+            #                 lambda:tf.image.per_image_standardization(image))
+            # image = tf.cond(get_control_flag(control[0], FLIP),
+            #                 lambda:tf.image.flip_left_right(image),
+            #                 lambda:tf.identity(image))
             #pylint: disable=no-member
-            image.set_shape(image_size + (3,))
+            # image = tf.image.resize_images(image, image_size)
+            image = image * 2 - 1
+            # image.set_shape(image_size + (3,))
             images.append(image)
         images_and_labels_list.append([images, label])
 

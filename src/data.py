@@ -46,7 +46,7 @@ class ImageData:
     def _parse_func(self, path):
         img = tf.read_file(path)
         img = tf.image.decode_jpeg(img, channels=self.num_channels)
-        img = tf.image.random_flip_left_right(img)
+        # img = tf.image.random_flip_left_right(img)
         img = tf.image.resize_images(img, [self.load_size, self.load_size])
         img = (img - tf.reduce_min(img)) / (tf.reduce_max(img) - tf.reduce_min(img))
         # img = img - tf.reduce_mean(img)
@@ -134,6 +134,7 @@ class SmaugImageData:
         self.image_paths = flat_paths
         self.pair_dataset_name = pair_dataset_name
         self.batch_size = batch_size
+        assert load_size >= crop_size
         self.load_size = load_size
         self.crop_size = crop_size
         self.num_channels = num_channels
@@ -159,7 +160,7 @@ class SmaugImageData:
     def _parse_func(self, path):
         img = tf.read_file(path)
         img = tf.image.decode_jpeg(img, channels=self.num_channels)
-        img = tf.image.random_flip_left_right(img)
+        # img = tf.image.random_flip_left_right(img)
         img = tf.image.resize_images(img, [self.load_size, self.load_size])
         img = (img - tf.reduce_min(img)) / (tf.reduce_max(img) - tf.reduce_min(img))
         # img = img - tf.reduce_mean(img)
@@ -184,7 +185,10 @@ class SmaugImageData:
         for img_class in self.image_classes:
             size = len(img_class)
             paths = deque(img_class.image_paths)
-            ind = random.randint(1, size-1)
+            if size-1 > 0:
+                ind = random.randint(1, size-1)
+            else:
+                ind = 0
             paths.rotate(ind)
             for i, path in enumerate(paths):
                 class_switch = random.randint(1, 2)
