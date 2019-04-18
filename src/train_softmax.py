@@ -139,12 +139,8 @@ def main(args):
         # smaug_output = tf.convert_to_tensor(np.ones((1, image_size[0], image_size[0], 3)), dtype=tf.float32)
         # smaug_label = tf.convert_to_tensor(np.array([0]), dtype=tf.int32)
 
-        smaug_facenet_label_placeholder = tf.placeholder(tf.int32, shape=1)
-        smaug_output_placeholder = tf.placeholder(tf.float32, shape=[None, image_size[0], image_size[1], 3])
-
-        image_batch = tf.identity(image_batch, 'image_batch')
-        image_batch = tf.concat([image_batch, smaug_output_placeholder], 0, 'input')
-        label_batch = tf.concat([label_batch, smaug_facenet_label_placeholder], 0, 'label_batch')
+        image_batch_plh = tf.placeholder(tf.float32, shape=[None, image_size[0], image_size[1], 3], name='image_batch_p')
+        label_batch_plh = tf.placeholder(tf.int32, name='label_batch_p')
 
         print('Number of classes in training set: %d' % nrof_classes)
         print('Number of examples in training set: %d' % len(image_list))
@@ -155,7 +151,7 @@ def main(args):
         print('Building training graph')
 
         # Build the inference graph
-        prelogits, _ = network.inference(image_batch, args.keep_probability,
+        prelogits, _ = network.inference(image_batch_plh, args.keep_probability,
                                          phase_train=phase_train_placeholder, bottleneck_layer_size=args.embedding_size,
                                          weight_decay=args.weight_decay)
         logits = slim.fully_connected(prelogits, len(train_set), activation_fn=None,
@@ -171,7 +167,7 @@ def main(args):
         tf.add_to_collection(tf.GraphKeys.REGULARIZATION_LOSSES, prelogits_norm * args.prelogits_norm_loss_factor)
 
         # Add center loss
-        prelogits_center_loss, _ = facenet.center_loss(prelogits, label_batch, args.center_loss_alfa, nrof_classes)
+        prelogits_center_loss, _ = facenet.center_loss(prelogits, label_batch_plh, args.center_loss_alfa, nrof_classes)
         tf.add_to_collection(tf.GraphKeys.REGULARIZATION_LOSSES, prelogits_center_loss * args.center_loss_factor)
 
         learning_rate = tf.train.exponential_decay(learning_rate_placeholder, global_step,
@@ -181,11 +177,11 @@ def main(args):
 
         # Calculate the average cross entropy loss across the batch
         cross_entropy = tf.nn.sparse_softmax_cross_entropy_with_logits(
-            labels=label_batch, logits=logits, name='cross_entropy_per_example')
+            labels=label_batch_plh, logits=logits, name='cross_entropy_per_example')
         cross_entropy_mean = tf.reduce_mean(cross_entropy, name='cross_entropy')
         tf.add_to_collection('losses', cross_entropy_mean)
 
-        correct_prediction = tf.cast(tf.equal(tf.argmax(logits, 1), tf.cast(label_batch, tf.int64)), tf.float32)
+        correct_prediction = tf.cast(tf.equal(tf.argmax(logits, 1), tf.cast(label_batch_plh, tf.int64)), tf.float32)
         accuracy = tf.reduce_mean(correct_prediction)
 
         # Calculate the total losses
@@ -205,14 +201,17 @@ def main(args):
         g_var = tf.trainable_variables()
         facenet_saver_vars = [var for var in g_var if 'Smart_Augmentation' not in var.name]
         facenet_saver_vars.append(global_step)
-        saver = tf.train.Saver(facenet_saver_vars, max_to_keep=3)
+        saver = tf.train.Saver(facenet_saver_vars, max_to_keep=10)
 
         # Build the summary operation based on the TF collection of Summaries.
         summary_op = tf.summary.merge_all()
 
         # Create session
-        gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=args.gpu_memory_fraction)
-        sess = tf.Session(config=tf.ConfigProto(gpu_options=gpu_options, log_device_placement=False))
+        # gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=args.gpu_memory_fraction)
+        # sess = tf.Session(config=tf.ConfigProto(gpu_options=gpu_options, log_device_placement=False))
+        config = tf.ConfigProto()
+        config.gpu_options.allow_growth = True
+        sess = tf.Session(config=config)
 
         # define smart augmentation operations
         smaug_input_placeholder = tf.placeholder(tf.float32, shape=[None, image_size[0], image_size[1], 6])
@@ -253,9 +252,10 @@ def main(args):
             smaug_dataset = SmaugImageData(train_set, image_list, args.pair_data_name, sess,
                                            load_size=image_size[0]+crop_delta, crop_size=image_size[0])
 
-            # Copy of a validation set to fill smaug_output_placeholder during validation
-            val_dataset_copy = ImageData(val_image_list, val_label_list, sess,
-                                         load_size=image_size[0], crop_size=image_size[0])
+            # Add pair images to total image data pool
+            image_list += smaug_dataset.pair_paths
+            label_list += label_list
+
             if pretrained_model:
                 print('Restoring pretrained model: %s' % pretrained_model)
                 ckpt_dir_or_file = tf.train.latest_checkpoint(pretrained_model)
@@ -305,16 +305,15 @@ def main(args):
                 cont = train(args, sess, epoch, batch_number, image_list, label_list, index_dequeue_op, enqueue_op,
                              image_paths_placeholder, labels_placeholder,
                              learning_rate_placeholder, phase_train_placeholder, batch_size_placeholder,
+                             image_batch, label_batch, image_batch_plh, label_batch_plh,
                              control_placeholder, global_step,
                              total_loss, train_op, summary_op, summary_writer, regularization_losses,
                              args.learning_rate_schedule_file,
                              stat, cross_entropy_mean, accuracy, learning_rate,
                              prelogits, prelogits_center_loss, args.random_rotate, args.random_crop, args.random_flip,
                              prelogits_norm, args.prelogits_hist_max, args.use_fixed_image_standardization,
-                             smaug_dataset, smaug_input_placeholder, smaug_output,
-                             smaug_image_label_placeholder, smaug_facenet_label_placeholder,
-                             loss_alpha, loss_beta, facenet_loss_placeholder, total_smaug_loss,
-                             smaug_train_op, smaug_output_placeholder, smaug_summary_op, image_batch)
+                             smaug_dataset, smaug_input_placeholder, smaug_output, smaug_image_label_placeholder,
+                             loss_alpha, facenet_loss_placeholder, total_smaug_loss, smaug_train_op, smaug_summary_op)
                 stat['time_train'][epoch - 1] = time.time() - t
 
                 if not cont:
@@ -327,7 +326,7 @@ def main(args):
                              phase_train_placeholder, batch_size_placeholder,
                              stat, total_loss, regularization_losses, cross_entropy_mean, accuracy,
                              args.validate_every_n_epochs, args.use_fixed_image_standardization,
-                             val_dataset_copy, smaug_output_placeholder, smaug_facenet_label_placeholder)
+                             image_batch, label_batch, image_batch_plh, label_batch_plh)
                 stat['time_validate'][epoch - 1] = time.time() - t
 
                 # Save variables and the metagraph if it doesn't exist already
@@ -390,15 +389,14 @@ def filter_dataset(dataset, data_filename, percentile, min_nrof_images_per_class
 
 def train(args, sess, epoch, batch_number, image_list, label_list, index_dequeue_op, enqueue_op, image_paths_placeholder,
           labels_placeholder,
-          learning_rate_placeholder, phase_train_placeholder, batch_size_placeholder, control_placeholder, step,
+          learning_rate_placeholder, phase_train_placeholder, batch_size_placeholder,
+          image_batch, label_batch, image_batch_plh, label_batch_plh, control_placeholder, step,
           loss, train_op, summary_op, summary_writer, reg_losses, learning_rate_schedule_file,
           stat, cross_entropy_mean, accuracy,
           learning_rate, prelogits, prelogits_center_loss, random_rotate, random_crop, random_flip, prelogits_norm,
           prelogits_hist_max, use_fixed_image_standardization,
-          smaug_dataset, smaug_input_placeholder, smaug_output,
-          smaug_image_label_placeholder, smaug_facenet_label_placeholder,
-          loss_alpha, loss_beta, facenet_loss_placeholder, total_smaug_loss,
-          smaug_train_op, smaug_output_placeholder, smaug_summary_op, image_batch):
+          smaug_dataset, smaug_input_placeholder, smaug_output, smaug_image_label_placeholder,
+          loss_alpha, facenet_loss_placeholder, total_smaug_loss, smaug_train_op, smaug_summary_op):
 
     if args.learning_rate > 0.0:
         lr = args.learning_rate
@@ -437,9 +435,16 @@ def train(args, sess, epoch, batch_number, image_list, label_list, index_dequeue
                      feed_dict={smaug_output: merged_img[0], smaug_image_label_placeholder: img_label,
                                 facenet_loss_placeholder: facenet_loss, smaug_input_placeholder: img})
 
+        # Process a batch of data for facenet
+        image_batch_, label_batch_ = sess.run([image_batch, label_batch],
+                                              feed_dict={batch_size_placeholder: args.batch_size})
+        image_batch_ = np.concatenate((image_batch_, merged_img[0]), axis=0)
+        label_batch_ = np.concatenate((label_batch_, facenet_label), axis=0)
+
+        # Compute loss and perform training step for facenet
         feed_dict = {learning_rate_placeholder: lr, phase_train_placeholder: True,
                      batch_size_placeholder: args.batch_size,
-                     smaug_output_placeholder: merged_img[0], smaug_facenet_label_placeholder: facenet_label}
+                     image_batch_plh: image_batch_, label_batch_plh: label_batch_}
 
         tensor_list = [loss, train_op, step, reg_losses, prelogits, cross_entropy_mean, learning_rate, prelogits_norm,
                        accuracy, prelogits_center_loss]
@@ -466,8 +471,8 @@ def train(args, sess, epoch, batch_number, image_list, label_list, index_dequeue
         stat['prelogits_hist'][epoch - 1, :] += \
         np.histogram(np.minimum(np.abs(prelogits_), prelogits_hist_max), bins=1000, range=(0.0, prelogits_hist_max))[0]
 
-        duration = time.time() - start_time
-        print('Epoch: [%d][%d/%d]\tTime %.3f\tLoss %2.3f\tXent %2.3f\tRegLoss %2.3f\tAccuracy %2.3f\tLr %2.5f\tCl %2.3f\е\tSmAugLoss %2.3f' %
+        print('Epoch: [%d][%d/%d]\tTime %.3f\tLoss %2.3f\tXent %2.3f\tRegLoss %2.3f\tAccuracy %2.3f'
+              '\tLr %2.5f\tCl %2.3f\tSmAugLoss %2.3f' %
               (epoch, batch_number + 1, args.epoch_size, duration, loss_, cross_entropy_mean_, np.sum(reg_losses_),
                accuracy_, lr_, center_loss_, smaug_loss))
         # if (batch_number + 1) % 10 == 0:
@@ -488,7 +493,7 @@ def validate(args, sess, epoch, image_list, label_list, enqueue_op, image_paths_
              phase_train_placeholder, batch_size_placeholder,
              stat, loss, regularization_losses, cross_entropy_mean, accuracy, validate_every_n_epochs,
              use_fixed_image_standardization,
-             val_dataset_copy, smaug_output_placeholder, smaug_facenet_label_placeholder):
+             image_batch, label_batch, image_batch_plh, label_batch_plh):
     print('Running forward pass on validation set')
 
     nrof_batches = len(label_list) // args.lfw_batch_size
@@ -509,9 +514,9 @@ def validate(args, sess, epoch, image_list, label_list, enqueue_op, image_paths_
     # Training loop
     start_time = time.time()
     for i in range(nrof_batches):
-        img, label = val_dataset_copy.batch()
+        img, label = sess.run([image_batch, label_batch], feed_dict={batch_size_placeholder: args.lfw_batch_size})
         feed_dict = {phase_train_placeholder: False, batch_size_placeholder: args.lfw_batch_size,
-                     smaug_output_placeholder: img, smaug_facenet_label_placeholder: label}
+                     image_batch_plh: img, label_batch_plh: label}
         loss_, cross_entropy_mean_, accuracy_ = sess.run([loss, cross_entropy_mean, accuracy], feed_dict=feed_dict)
         loss_array[i], xent_array[i], accuracy_array[i] = (loss_, cross_entropy_mean_, accuracy_)
         if i % 10 == 9:
@@ -601,7 +606,8 @@ def save_variables_and_metagraph(sess, saver, summary_writer, model_dir, model_n
     print('Saving variables')
     start_time = time.time()
     checkpoint_path = os.path.join(model_dir, 'model-%s.ckpt' % model_name)
-    saver.save(sess, checkpoint_path, global_step=step, write_meta_graph=False)
+    if step % 1 == 0:
+        saver.save(sess, checkpoint_path, global_step=step, write_meta_graph=False)
     save_time_variables = time.time() - start_time
     print('Variables saved in %.2f seconds' % save_time_variables)
     metagraph_filename = os.path.join(model_dir, 'model-%s.meta' % model_name)

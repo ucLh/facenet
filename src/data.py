@@ -33,15 +33,14 @@ class ImageData:
         self.num_threads = num_threads
         self.shuffle = shuffle
         self.buffer_size = buffer_size
-
+        self._img_batch = self._image_batch().make_one_shot_iterator().get_next()
         self._img_num = len(image_paths)
 
     def __len__(self):
         return self._img_num
 
     def batch(self):
-
-        return self._sess.run(self._image_batch().make_one_shot_iterator().get_next())
+        return self._sess.run(self._img_batch)
 
     def _parse_func(self, path):
         img = tf.read_file(path)
@@ -147,15 +146,14 @@ class SmaugImageData:
         self._create_pair_paths()
         self._create_label_paths()
         _, self.facenet_labels = get_image_paths_and_labels(image_classes)
-
+        self._img_batch = self._image_batch().make_one_shot_iterator().get_next()
         self._img_num = len(image_classes)
 
     def __len__(self):
         return self._img_num
 
     def batch(self):
-
-        return self._sess.run(self._image_batch().make_one_shot_iterator().get_next())
+        return self._sess.run(self._img_batch)
 
     def _parse_func(self, path):
         img = tf.read_file(path)
