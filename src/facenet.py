@@ -40,6 +40,7 @@ import re
 from tensorflow.python.platform import gfile
 import math
 from six import iteritems
+from augmentations.augmentations import random_black_patches
 
 def triplet_loss(anchor, positive, negative, alpha):
     """Calculate the triplet loss according to the FaceNet paper
@@ -95,7 +96,7 @@ def random_rotate_image(image):
     return misc.imrotate(image, angle, 'bicubic')
   
 # 1: Random rotate 2: Random crop  4: Random flip  8:  Fixed image standardization  16: Flip
-RANDOM_ROTATE = 1
+RANDOM_BLACK_PATCHES = 1
 RANDOM_CROP = 2
 RANDOM_FLIP = 4
 FIXED_STANDARDIZATION = 8
@@ -112,15 +113,15 @@ def create_input_pipeline(input_queue, image_size, nrof_preprocess_threads, batc
             image = tf.image.resize_images(image, [load_size, load_size])
             # normalization
             image = (image - tf.reduce_min(image)) / (tf.reduce_max(image) - tf.reduce_min(image))
-            # image = tf.cond(get_control_flag(control[0], RANDOM_ROTATE),
-            #                 lambda:tf.py_func(random_rotate_image, [image], tf.uint8),
-            #                 lambda:tf.identity(image))
-            image = tf.cond(get_control_flag(control[0], RANDOM_CROP), 
-                            lambda:tf.random_crop(image, image_size + (3,)), 
-                            lambda:tf.image.resize_images(image, image_size))
-            # image = tf.cond(get_control_flag(control[0], RANDOM_FLIP),
-            #                 lambda:tf.image.random_flip_left_right(image),
-            #                 lambda:tf.identity(image))
+            image = tf.cond(get_control_flag(control[0], RANDOM_BLACK_PATCHES),
+                            lambda:random_black_patches(image),
+                            lambda:tf.identity(image))
+            image = tf.cond(get_control_flag(control[0], RANDOM_CROP),
+                            lambda: tf.random_crop(image, image_size + (3,)),
+                            lambda: tf.image.resize_image_with_crop_or_pad(image, image_size[0], image_size[1]))
+            image = tf.cond(get_control_flag(control[0], RANDOM_FLIP),
+                            lambda:tf.image.random_flip_left_right(image),
+                            lambda:tf.identity(image))
             # image = tf.cond(get_control_flag(control[0], FIXED_STANDARDIZATION),
             #                 lambda:(tf.cast(image, tf.float32) - 127.5)/128.0,
             #                 lambda:tf.image.per_image_standardization(image))

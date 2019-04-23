@@ -47,6 +47,7 @@ from tensorflow.python.ops import array_ops
 from data import *
 from models.smart_augmentation import smart_augmentation
 import utils
+import image_utils as im
 
 
 def main(args):
@@ -135,6 +136,8 @@ def main(args):
                                               name='enqueue_op')
         image_batch, label_batch = facenet.create_input_pipeline(input_queue, image_size, nrof_preprocess_threads,
                                                                  batch_size_placeholder)
+
+        tf.summary.image('image_batch', image_batch)
 
         # smaug_output = tf.convert_to_tensor(np.ones((1, image_size[0], image_size[0], 3)), dtype=tf.float32)
         # smaug_label = tf.convert_to_tensor(np.array([0]), dtype=tf.int32)
@@ -310,7 +313,7 @@ def main(args):
                              total_loss, train_op, summary_op, summary_writer, regularization_losses,
                              args.learning_rate_schedule_file,
                              stat, cross_entropy_mean, accuracy, learning_rate,
-                             prelogits, prelogits_center_loss, args.random_rotate, args.random_crop, args.random_flip,
+                             prelogits, prelogits_center_loss, args.random_black_patches, args.random_crop, args.random_flip,
                              prelogits_norm, args.prelogits_hist_max, args.use_fixed_image_standardization,
                              smaug_dataset, smaug_input_placeholder, smaug_output, smaug_image_label_placeholder,
                              loss_alpha, facenet_loss_placeholder, total_smaug_loss, smaug_train_op, smaug_summary_op)
@@ -393,7 +396,7 @@ def train(args, sess, epoch, batch_number, image_list, label_list, index_dequeue
           image_batch, label_batch, image_batch_plh, label_batch_plh, control_placeholder, step,
           loss, train_op, summary_op, summary_writer, reg_losses, learning_rate_schedule_file,
           stat, cross_entropy_mean, accuracy,
-          learning_rate, prelogits, prelogits_center_loss, random_rotate, random_crop, random_flip, prelogits_norm,
+          learning_rate, prelogits, prelogits_center_loss, random_black_patches, random_crop, random_flip, prelogits_norm,
           prelogits_hist_max, use_fixed_image_standardization,
           smaug_dataset, smaug_input_placeholder, smaug_output, smaug_image_label_placeholder,
           loss_alpha, facenet_loss_placeholder, total_smaug_loss, smaug_train_op, smaug_summary_op):
@@ -413,7 +416,7 @@ def train(args, sess, epoch, batch_number, image_list, label_list, index_dequeue
     # Enqueue one epoch of image paths and labels
     labels_array = np.expand_dims(np.array(label_epoch), 1)
     image_paths_array = np.expand_dims(np.array(image_epoch), 1)
-    control_value = facenet.RANDOM_ROTATE * random_rotate + facenet.RANDOM_CROP * random_crop + facenet.RANDOM_FLIP * random_flip + facenet.FIXED_STANDARDIZATION * use_fixed_image_standardization
+    control_value = facenet.RANDOM_BLACK_PATCHES * random_black_patches + facenet.RANDOM_CROP * random_crop + facenet.RANDOM_FLIP * random_flip + facenet.FIXED_STANDARDIZATION * use_fixed_image_standardization
     control_array = np.ones_like(labels_array) * control_value
     sess.run(enqueue_op, {image_paths_placeholder: image_paths_array, labels_placeholder: labels_array,
                           control_placeholder: control_array})
@@ -606,7 +609,8 @@ def save_variables_and_metagraph(sess, saver, summary_writer, model_dir, model_n
     print('Saving variables')
     start_time = time.time()
     checkpoint_path = os.path.join(model_dir, 'model-%s.ckpt' % model_name)
-    if step % 1 == 0:
+    save_every = 5
+    if step % save_every == 0:
         saver.save(sess, checkpoint_path, global_step=step, write_meta_graph=False)
     save_time_variables = time.time() - start_time
     print('Variables saved in %.2f seconds' % save_time_variables)
@@ -661,8 +665,8 @@ def parse_arguments(argv):
                         action='store_true')
     parser.add_argument('--random_flip',
                         help='Performs random horizontal flipping of training images.', action='store_true')
-    parser.add_argument('--random_rotate',
-                        help='Performs random rotations of training images.', action='store_true')
+    parser.add_argument('--random_black_patches',
+                        help='Adds random black patches to training images', action='store_true')
     parser.add_argument('--use_fixed_image_standardization',
                         help='Performs fixed standardization of images.', action='store_true')
     parser.add_argument('--keep_probability', type=float,

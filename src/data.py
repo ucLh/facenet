@@ -2,6 +2,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+from augmentations.augmentations import random_black_patches
 from collections import deque
 from facenet import get_image_paths_and_labels
 import tensorflow as tf
@@ -21,7 +22,7 @@ class ImageData:
                  drop_remainder=True,
                  num_threads=16,
                  shuffle=True,
-                 buffer_size=4092):
+                 buffer_size=2048):
         self._sess = session
         self.image_paths = image_paths
         self.labels = labels
@@ -49,7 +50,7 @@ class ImageData:
         img = tf.image.resize_images(img, [self.load_size, self.load_size])
         img = (img - tf.reduce_min(img)) / (tf.reduce_max(img) - tf.reduce_min(img))
         # img = img - tf.reduce_mean(img)
-        img = tf.random_crop(img, [self.crop_size, self.crop_size, self.num_channels])
+        # img = tf.random_crop(img, [self.crop_size, self.crop_size, self.num_channels])
         img = img * 2 - 1
         return img
 
@@ -127,7 +128,7 @@ class SmaugImageData:
                  drop_remainder=True,
                  num_threads=16,
                  shuffle=True,
-                 buffer_size=4092):
+                 buffer_size=2048):
         self._sess = session
         self.image_classes = image_classes
         self.image_paths = flat_paths
@@ -141,9 +142,8 @@ class SmaugImageData:
         self.num_threads = num_threads
         self.shuffle = shuffle
         self.buffer_size = buffer_size
-        self.pair_paths = []
+        self.pair_paths = self._create_pair_paths(flat_paths, pair_dataset_name)
         self.label_paths = []
-        self._create_pair_paths()
         self._create_label_paths()
         _, self.facenet_labels = get_image_paths_and_labels(image_classes)
         self._img_batch = self._image_batch().make_one_shot_iterator().get_next()
@@ -158,11 +158,12 @@ class SmaugImageData:
     def _parse_func(self, path):
         img = tf.read_file(path)
         img = tf.image.decode_jpeg(img, channels=self.num_channels)
-        # img = tf.image.random_flip_left_right(img)
+        img = tf.image.random_flip_left_right(img)
         img = tf.image.resize_images(img, [self.load_size, self.load_size])
         img = (img - tf.reduce_min(img)) / (tf.reduce_max(img) - tf.reduce_min(img))
         # img = img - tf.reduce_mean(img)
         img = tf.random_crop(img, [self.crop_size, self.crop_size, self.num_channels])
+        img = random_black_patches(img)
         img = img * 2 - 1
         return img
 
@@ -174,10 +175,13 @@ class SmaugImageData:
         new_path_list[-3] = new_name
         return '/'.join(new_path_list)
 
-    def _create_pair_paths(self):
-        for path in self.image_paths:
-            new_path = self._change_dataset_name_in_path(path, self.pair_dataset_name)
-            self.pair_paths.append(new_path)
+    @staticmethod
+    def _create_pair_paths(image_paths, pair_dataset_name):
+        pair_paths = []
+        for path in image_paths:
+            new_path = SmaugImageData._change_dataset_name_in_path(path, pair_dataset_name)
+            pair_paths.append(new_path)
+        return pair_paths
 
     def _create_label_paths(self):
         for img_class in self.image_classes:
