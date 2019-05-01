@@ -64,7 +64,7 @@ class ImageData:
             dataset = dataset.shuffle(self.buffer_size)
 
         dataset = dataset.batch(self.batch_size, drop_remainder=self.drop_remainder)
-        dataset = dataset.prefetch(1)
+        dataset = dataset.repeat(-1).prefetch(2)
 
         return dataset
 
@@ -215,6 +215,6 @@ class SmaugImageData:
             dataset = dataset.shuffle(self.buffer_size)
 
         dataset = dataset.batch(self.batch_size, drop_remainder=self.drop_remainder)
-        dataset = dataset.prefetch(1)
+        dataset = dataset.repeat(-1).prefetch(2)
 
         return dataset
