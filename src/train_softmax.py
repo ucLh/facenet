@@ -176,6 +176,8 @@ def main(args):
         learning_rate = tf.train.exponential_decay(learning_rate_placeholder, global_step,
                                                    args.learning_rate_decay_epochs * args.epoch_size,
                                                    args.learning_rate_decay_factor, staircase=True)
+        # learning_rate = tf.train.cosine_decay(args.learning_rate, global_step,
+        #                                       args.learning_rate_decay_epochs * args.epoch_size)
         tf.summary.scalar('learning_rate', learning_rate)
 
         # Calculate the average cross entropy loss across the batch
@@ -253,7 +255,8 @@ def main(args):
         with sess.as_default():
 
             smaug_dataset = SmaugImageData(train_set, image_list, args.pair_data_name, sess,
-                                           load_size=image_size[0]+crop_delta, crop_size=image_size[0])
+                                           load_size=image_size[0]+crop_delta, crop_size=image_size[0],
+                                           batch_size=args.smaug_batch_size)
 
             # Add pair images to total image data pool
             image_list += smaug_dataset.pair_paths
@@ -333,7 +336,7 @@ def main(args):
                 stat['time_validate'][epoch - 1] = time.time() - t
 
                 # Save variables and the metagraph if it doesn't exist already
-                save_variables_and_metagraph(sess, saver, summary_writer, model_dir, subdir, epoch)
+                save_variables_and_metagraph(sess, saver, summary_writer, model_dir, subdir, epoch, args.save_every)
 
                 # Save Smart Augmentation model
                 smaug_saver.save(sess, '%s/Epoch_(%dof%d).ckpt' % (ckpt_dir, epoch, args.max_nrof_epochs))
@@ -431,6 +434,11 @@ def train(args, sess, epoch, batch_number, image_list, label_list, index_dequeue
         img_a, img_b, img_label, facenet_label = smaug_dataset.batch()
         img = np.concatenate((img_a, img_b), axis=-1)
         merged_img = sess.run([smaug_output], feed_dict={smaug_input_placeholder: img})
+
+        # Save samples of input data
+        # sample = np.concatenate((img_a, img_b), axis=0)
+        # img_name = str(batch_number) + '.jpg'
+        # im.imwrite(im.immerge(sample, 1, 3), '../logs/' + img_name)
 
         # Compute loss and perform a training step for Smart Augmentation
         smaug_alpha_loss, smaug_loss, _, smaug_summary = \
@@ -604,12 +612,11 @@ def evaluate(sess, enqueue_op, image_paths_placeholder, labels_placeholder, phas
     stat['lfw_valrate'][epoch - 1] = val
 
 
-def save_variables_and_metagraph(sess, saver, summary_writer, model_dir, model_name, step):
+def save_variables_and_metagraph(sess, saver, summary_writer, model_dir, model_name, step, save_every):
     # Save the model checkpoint
     print('Saving variables')
     start_time = time.time()
     checkpoint_path = os.path.join(model_dir, 'model-%s.ckpt' % model_name)
-    save_every = 5
     if step % save_every == 0:
         saver.save(sess, checkpoint_path, global_step=step, write_meta_graph=False)
     save_time_variables = time.time() - start_time
@@ -640,12 +647,11 @@ def parse_arguments(argv):
                         help='Upper bound on the amount of GPU memory that will be used by the process.', default=1.0)
     parser.add_argument('--pretrained_model', type=str,
                         help='Load a pretrained model before training starts.')
+    parser.add_argument('--save_every', type=int,
+                        help='Number of epochs to run.', default=5)
     parser.add_argument('--data_dir', type=str,
                         help='Path to the data directory containing aligned face patches.',
                         default='../datasets/small/')
-    parser.add_argument('--pair_data_name', type=str,
-                        help='Name of dataset for Smart Augmentation merging.',
-                        default='small_winter')
     parser.add_argument('--model_def', type=str,
                         help='Model definition. Points to a module containing the definition of the inference graph.',
                         default='models.inception_resnet_v1')
@@ -689,7 +695,7 @@ def parse_arguments(argv):
                         help='Initial learning rate. If set to a negative value a learning rate ' +
                              'schedule can be specified in the file "learning_rate_schedule.txt"', default=-1)
     parser.add_argument('--learning_rate_decay_epochs', type=int,
-                        help='Number of epochs between learning rate decay.', default=100)
+                        help='Number of epochs between learning rate decay.', default=1)
     parser.add_argument('--learning_rate_decay_factor', type=float,
                         help='Learning rate decay factor.', default=1.0)
     parser.add_argument('--moving_average_decay', type=float,
@@ -732,6 +738,14 @@ def parse_arguments(argv):
                         action='store_true')
     parser.add_argument('--lfw_subtract_mean',
                         help='Subtract feature mean before calculating distance.', action='store_true')
+
+    # Parameters for Smart Augmentation
+    parser.add_argument('--pair_data_name', type=str,
+                        help='Name of dataset for Smart Augmentation merging.', default='small_winter')
+    parser.add_argument('--smaug_batch_size', type=int,
+                        help='Number of images in the batch that will be added to the original facenet input',
+                        default=1)
+
     return parser.parse_args(argv)
 
 
