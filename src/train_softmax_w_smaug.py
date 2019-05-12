@@ -1,19 +1,19 @@
 """Training a face recognizer with TensorFlow using softmax cross entropy loss
 """
 # MIT License
-#
+# 
 # Copyright (c) 2016 David Sandberg
-#
+# 
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
 # in the Software without restriction, including without limitation the rights
 # to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
 # copies of the Software, and to permit persons to whom the Software is
 # furnished to do so, subject to the following conditions:
-#
+# 
 # The above copyright notice and this permission notice shall be included in all
 # copies or substantial portions of the Software.
-#
+# 
 # THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 # IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
 # FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
@@ -112,7 +112,7 @@ def main(args):
 
         val_image_list, val_label_list = facenet.get_image_paths_and_labels(val_set)
 
-        # Create a queue that produces indices into the image_list and label_list
+        # Create a queue that produces indices into the image_list and label_list 
         labels = ops.convert_to_tensor(label_list, dtype=tf.int32)
         range_size = array_ops.shape(labels)[0]
         index_queue = tf.train.range_input_producer(range_size, num_epochs=None,
@@ -137,7 +137,7 @@ def main(args):
         image_batch, label_batch = facenet.create_input_pipeline(input_queue, image_size, nrof_preprocess_threads,
                                                                  batch_size_placeholder)
 
-        # tf.summary.image('image_batch', image_batch)
+        tf.summary.image('image_batch', image_batch)
 
         # smaug_output = tf.convert_to_tensor(np.ones((1, image_size[0], image_size[0], 3)), dtype=tf.float32)
         # smaug_label = tf.convert_to_tensor(np.array([0]), dtype=tf.int32)
@@ -188,6 +188,7 @@ def main(args):
 
         correct_prediction = tf.cast(tf.equal(tf.argmax(logits, 1), tf.cast(label_batch_plh, tf.int64)), tf.float32)
         accuracy = tf.reduce_mean(correct_prediction, name='accuracy')
+        print(accuracy)
 
         # Calculate the total losses
         regularization_losses = tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)
@@ -254,16 +255,26 @@ def main(args):
 
         with sess.as_default():
 
-            if args.use_pair_images:
-                smaug_dataset = SmaugImageData(train_set, image_list, args.pair_data_name, sess,
-                                               load_size=image_size[0] + crop_delta, crop_size=image_size[0])
-                image_list += smaug_dataset.pair_paths
-                label_list += label_list
+            smaug_dataset = SmaugImageData(train_set, image_list, args.pair_data_name, sess,
+                                           load_size=image_size[0]+crop_delta, crop_size=image_size[0],
+                                           batch_size=args.smaug_batch_size)
+
+            # Add pair images to total image data pool
+            image_list += smaug_dataset.pair_paths
+            label_list += label_list
 
             if pretrained_model:
                 print('Restoring pretrained model: %s' % pretrained_model)
                 ckpt_dir_or_file = tf.train.latest_checkpoint(pretrained_model)
                 saver.restore(sess, ckpt_dir_or_file)
+
+            # Restore smaug model
+            ckpt_dir = '../models/smaug/'
+            utils.mkdir(ckpt_dir)
+            try:
+                utils.load_checkpoint(ckpt_dir, sess, smaug_saver)
+            except:
+                print('Checkpoint for smaug model has not been provided')
 
             # Training and validation loop
             print('Running training')
@@ -307,7 +318,9 @@ def main(args):
                              args.learning_rate_schedule_file,
                              stat, cross_entropy_mean, accuracy, learning_rate,
                              prelogits, prelogits_center_loss, args.random_black_patches, args.random_crop, args.random_flip,
-                             prelogits_norm, args.prelogits_hist_max, args.use_fixed_image_standardization)
+                             prelogits_norm, args.prelogits_hist_max, args.use_fixed_image_standardization,
+                             smaug_dataset, smaug_input_placeholder, smaug_output, smaug_image_label_placeholder,
+                             loss_alpha, facenet_loss_placeholder, total_smaug_loss, smaug_train_op, smaug_summary_op)
                 stat['time_train'][epoch - 1] = time.time() - t
 
                 if not cont:
@@ -325,6 +338,9 @@ def main(args):
 
                 # Save variables and the metagraph if it doesn't exist already
                 save_variables_and_metagraph(sess, saver, summary_writer, model_dir, subdir, epoch, args.save_every)
+
+                # Save Smart Augmentation model
+                smaug_saver.save(sess, '%s/Epoch_(%dof%d).ckpt' % (ckpt_dir, epoch, args.max_nrof_epochs))
 
                 # Evaluate on LFW
                 t = time.time()
@@ -385,7 +401,9 @@ def train(args, sess, epoch, batch_number, image_list, label_list, index_dequeue
           loss, train_op, summary_op, summary_writer, reg_losses, learning_rate_schedule_file,
           stat, cross_entropy_mean, accuracy,
           learning_rate, prelogits, prelogits_center_loss, random_black_patches, random_crop, random_flip, prelogits_norm,
-          prelogits_hist_max, use_fixed_image_standardization):
+          prelogits_hist_max, use_fixed_image_standardization,
+          smaug_dataset, smaug_input_placeholder, smaug_output, smaug_image_label_placeholder,
+          loss_alpha, facenet_loss_placeholder, total_smaug_loss, smaug_train_op, smaug_summary_op):
 
     if args.learning_rate > 0.0:
         lr = args.learning_rate
@@ -414,21 +432,26 @@ def train(args, sess, epoch, batch_number, image_list, label_list, index_dequeue
         start_time = time.time()
 
         # Process a batch of data for Smart Augmentation
-        # img_a, img_b, img_label, facenet_label = smaug_dataset.batch()
-        # img = np.concatenate((img_a, img_b), axis=-1)
-        # merged_img = sess.run([smaug_output], feed_dict={smaug_input_placeholder: img})
+        img_a, img_b, img_label, facenet_label = smaug_dataset.batch()
+        img = np.concatenate((img_a, img_b), axis=-1)
+        merged_img = sess.run([smaug_output], feed_dict={smaug_input_placeholder: img})
+
+        # Save samples of input data
+        # sample = np.concatenate((img_a, img_b), axis=0)
+        # img_name = str(batch_number) + '.jpg'
+        # im.imwrite(im.immerge(sample, 1, 3), '../logs/' + img_name)
 
         # Compute loss and perform a training step for Smart Augmentation
-        # smaug_alpha_loss, smaug_loss, _, smaug_summary = \
-        #     sess.run([loss_alpha, total_smaug_loss, smaug_train_op, smaug_summary_op],
-        #              feed_dict={smaug_output: merged_img[0], smaug_image_label_placeholder: img_label,
-        #                         facenet_loss_placeholder: facenet_loss, smaug_input_placeholder: img})
-        #
+        smaug_alpha_loss, smaug_loss, _, smaug_summary = \
+            sess.run([loss_alpha, total_smaug_loss, smaug_train_op, smaug_summary_op],
+                     feed_dict={smaug_output: merged_img[0], smaug_image_label_placeholder: img_label,
+                                facenet_loss_placeholder: facenet_loss, smaug_input_placeholder: img})
+
         # Process a batch of data for facenet
         image_batch_, label_batch_ = sess.run([image_batch, label_batch],
                                               feed_dict={batch_size_placeholder: args.batch_size})
-        # image_batch_ = np.concatenate((image_batch_, merged_img[0]), axis=0)
-        # label_batch_ = np.concatenate((label_batch_, facenet_label), axis=0)
+        image_batch_ = np.concatenate((image_batch_, merged_img[0]), axis=0)
+        label_batch_ = np.concatenate((label_batch_, facenet_label), axis=0)
 
         # Compute loss and perform training step for facenet
         feed_dict = {learning_rate_placeholder: lr, phase_train_placeholder: True,
@@ -441,7 +464,7 @@ def train(args, sess, epoch, batch_number, image_list, label_list, index_dequeue
             loss_, _, step_, reg_losses_, prelogits_, cross_entropy_mean_, lr_, prelogits_norm_, accuracy_, center_loss_, summary_str = sess.run(
                 tensor_list + [summary_op], feed_dict=feed_dict)
             summary_writer.add_summary(summary_str, global_step=step_)
-            # summary_writer.add_summary(smaug_summary, global_step=step_)
+            summary_writer.add_summary(smaug_summary, global_step=step_)
         else:
             loss_, _, step_, reg_losses_, prelogits_, cross_entropy_mean_, lr_, prelogits_norm_, accuracy_, center_loss_ = sess.run(
                 tensor_list, feed_dict=feed_dict)
@@ -450,8 +473,8 @@ def train(args, sess, epoch, batch_number, image_list, label_list, index_dequeue
         stat['loss'][step_ - 1] = loss_
         facenet_loss = loss_
         stat['center_loss'][step_ - 1] = center_loss_
-        # stat['smaug_alpha_loss'] = smaug_alpha_loss
-        # stat['smaug_total_loss'] = smaug_loss
+        stat['smaug_alpha_loss'] = smaug_alpha_loss
+        stat['smaug_total_loss'] = smaug_loss
         stat['reg_loss'][step_ - 1] = np.sum(reg_losses_)
         stat['xent_loss'][step_ - 1] = cross_entropy_mean_
         stat['prelogits_norm'][step_ - 1] = prelogits_norm_
@@ -461,9 +484,12 @@ def train(args, sess, epoch, batch_number, image_list, label_list, index_dequeue
         np.histogram(np.minimum(np.abs(prelogits_), prelogits_hist_max), bins=1000, range=(0.0, prelogits_hist_max))[0]
 
         print('Epoch: [%d][%d/%d]\tTime %.3f\tLoss %2.3f\tXent %2.3f\tRegLoss %2.3f\tAccuracy %2.3f'
-              '\tLr %2.5f\tCl %2.3f' %
+              '\tLr %2.5f\tCl %2.3f\tSmAugLoss %2.3f' %
               (epoch, batch_number + 1, args.epoch_size, duration, loss_, cross_entropy_mean_, np.sum(reg_losses_),
-               accuracy_, lr_, center_loss_))
+               accuracy_, lr_, center_loss_, smaug_loss))
+        # if (batch_number + 1) % 10 == 0:
+        #     save_path = smaug_saver.save(sess, '%s/Epoch_(%d)_(%dof%d).ckpt' % (ckpt_dir, epoch, batch_number, epoch))
+        #     print('Model saved in file: % s' % save_path)
         batch_number += 1
         train_time += duration
     # Add validation loss and accuracy to summary
@@ -626,7 +652,7 @@ def parse_arguments(argv):
                         help='Number of epochs to run.', default=5)
     parser.add_argument('--data_dir', type=str,
                         help='Path to the data directory containing aligned face patches.',
-                        default='../datasets/current_train/')
+                        default='../datasets/small/')
     parser.add_argument('--model_def', type=str,
                         help='Model definition. Points to a module containing the definition of the inference graph.',
                         default='models.inception_resnet_v1')
@@ -720,9 +746,6 @@ def parse_arguments(argv):
     parser.add_argument('--smaug_batch_size', type=int,
                         help='Number of images in the batch that will be added to the original facenet input',
                         default=1)
-    parser.add_argument('--use_pair_images', type=bool,
-                        help='Whether to use pair images in training, or not.',
-                        default=True)
 
     return parser.parse_args(argv)
 
