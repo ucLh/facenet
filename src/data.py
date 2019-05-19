@@ -2,38 +2,44 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-from augmentations.augmentations import random_black_patches
-from collections import deque
-from facenet import get_image_paths_and_labels
-import tensorflow as tf
 import random
+from collections import deque
+
+import tensorflow as tf
+
+from facenet import get_image_paths_and_labels
 
 
-class ImageData:
+class SingleImageData:
 
     def __init__(self,
                  image_paths,
-                 labels,
                  session,
                  batch_size=1,
                  load_size=286,
+                 use_crop=False,
                  crop_size=256,
+                 use_flip=False,
                  num_channels=3,
                  drop_remainder=True,
                  num_threads=16,
-                 shuffle=True,
-                 buffer_size=2048):
+                 shuffle=False,
+                 buffer_size=2048,
+                 repeat=0):
         self._sess = session
         self.image_paths = image_paths
-        self.labels = labels
-        self.batch_size = batch_size
-        self.load_size = load_size
-        self.crop_size = crop_size
-        self.num_channels = num_channels
-        self.drop_remainder = drop_remainder
-        self.num_threads = num_threads
-        self.shuffle = shuffle
-        self.buffer_size = buffer_size
+        self._batch_size = batch_size
+        self._load_size = load_size
+        self._use_crop = use_crop
+        self._crop_size = crop_size
+        assert load_size >= crop_size
+        self._use_flip = use_flip
+        self._num_channels = num_channels
+        self._drop_remainder = drop_remainder
+        self._num_threads = num_threads
+        self._shuffle = shuffle
+        self._buffer_size = buffer_size
+        self._repeat = repeat
         self._img_batch = self._image_batch().make_one_shot_iterator().get_next()
         self._img_num = len(image_paths)
 
@@ -45,76 +51,77 @@ class ImageData:
 
     def _parse_func(self, path):
         img = tf.read_file(path)
-        img = tf.image.decode_jpeg(img, channels=self.num_channels)
-        # img = tf.image.random_flip_left_right(img)
-        img = tf.image.resize_images(img, [self.load_size, self.load_size])
+        img = tf.image.decode_jpeg(img, channels=self._num_channels)
+        if self._use_flip:
+            img = tf.image.random_flip_left_right(img)
+
+        img = tf.image.resize_images(img, [self._load_size, self._load_size])
         img = (img - tf.reduce_min(img)) / (tf.reduce_max(img) - tf.reduce_min(img))
-        # img = img - tf.reduce_mean(img)
-        # img = tf.random_crop(img, [self.crop_size, self.crop_size, self.num_channels])
+
+        if self._use_crop:
+            img = tf.random_crop(img, [self._crop_size, self._crop_size, self._num_channels])
         img = img * 2 - 1
         return img
 
-    def _image_batch(self):
+    def _map_dataset(self):
         dataset = tf.data.Dataset.from_tensor_slices(self.image_paths)
-        labels = tf.data.Dataset.from_tensor_slices(self.labels)
-        dataset = dataset.map(self._parse_func, num_parallel_calls=self.num_threads)
+        return dataset.map(self._parse_func, num_parallel_calls=self._num_threads)
 
-        dataset = dataset.zip((dataset, labels))
-        if self.shuffle:
-            dataset = dataset.shuffle(self.buffer_size)
+    def _image_batch(self):
+        dataset = self._map_dataset()
 
-        dataset = dataset.batch(self.batch_size, drop_remainder=self.drop_remainder)
-        dataset = dataset.repeat(-1).prefetch(2)
+        if self._shuffle:
+            dataset = dataset.shuffle(self._buffer_size)
+
+        dataset = dataset.batch(self._batch_size, drop_remainder=self._drop_remainder)
+        dataset = dataset.repeat(self._repeat).prefetch(2)
 
         return dataset
 
 
-class PairedImageData(ImageData):
+class LabeledImageData(SingleImageData):
 
     def __init__(self,
-                 image_paths_a,
-                 image_paths_b,
+                 image_paths,
+                 labels,
                  session,
                  batch_size=1,
                  load_size=286,
+                 use_crop=True,
                  crop_size=256,
+                 use_flip=True,
                  num_channels=3,
                  drop_remainder=True,
                  num_threads=16,
                  shuffle=True,
-                 buffer_size=4096):
-        super().__init__([],
-                         session,
-                         batch_size,
-                         load_size,
-                         crop_size,
-                         num_channels,
-                         drop_remainder,
-                         num_threads,
-                         shuffle,
-                         buffer_size)
-        self.image_paths_a = image_paths_a
-        self.image_paths_b = image_paths_b
-        self._img_num = len(image_paths_a) + len(image_paths_b)
+                 buffer_size=2048,
+                 repeat=-1):
 
-    def _image_batch(self):
-        dataset_a = tf.data.Dataset.from_tensor_slices(self.image_paths_a)
-        dataset_b = tf.data.Dataset.from_tensor_slices(self.image_paths_b)
+        self.labels = labels
 
-        dataset_a = dataset_a.map(self._parse_func, num_parallel_calls=self.num_threads)
-        dataset_b = dataset_b.map(self._parse_func, num_parallel_calls=self.num_threads)
+        super().__init__(image_paths=image_paths,
+                         session=session,
+                         batch_size=batch_size,
+                         load_size=load_size,
+                         use_crop=use_crop,
+                         crop_size=crop_size,
+                         use_flip=use_flip,
+                         num_channels=num_channels,
+                         drop_remainder=drop_remainder,
+                         num_threads=num_threads,
+                         shuffle=shuffle,
+                         buffer_size=buffer_size,
+                         repeat=repeat)
 
-        dataset = tf.data.Dataset.zip((dataset_a, dataset_b))
+    def _map_dataset(self):
+        dataset = tf.data.Dataset.from_tensor_slices(self.image_paths)
+        labels = tf.data.Dataset.from_tensor_slices(self.labels)
+        dataset = dataset.map(self._parse_func, num_parallel_calls=self._num_threads)
 
-        if self.shuffle:
-            dataset = dataset.shuffle(self.buffer_size)
-
-        dataset = dataset.batch(self.batch_size, drop_remainder=self.drop_remainder)
-
-        return dataset
+        return dataset.zip((dataset, labels))
 
 
-class SmaugImageData:
+class SmaugImageData(SingleImageData):
 
     def __init__(self,
                  image_classes,
@@ -123,68 +130,46 @@ class SmaugImageData:
                  session,
                  batch_size=1,
                  load_size=286,
+                 use_crop=True,
                  crop_size=256,
+                 use_flip=True,
                  num_channels=3,
                  drop_remainder=True,
                  num_threads=16,
                  shuffle=True,
-                 buffer_size=2048):
-        self._sess = session
-        self.image_classes = image_classes
-        self.image_paths = flat_paths
-        self.pair_dataset_name = pair_dataset_name
-        self.batch_size = batch_size
-        assert load_size >= crop_size
-        self.load_size = load_size
-        self.crop_size = crop_size
-        self.num_channels = num_channels
-        self.drop_remainder = drop_remainder
-        self.num_threads = num_threads
-        self.shuffle = shuffle
-        self.buffer_size = buffer_size
-        self.pair_paths = self._create_pair_paths(flat_paths, pair_dataset_name)
-        self.label_paths = []
-        self._create_label_paths()
+                 buffer_size=2048,
+                 repeat=-1):
+        """
+        :param image_classes: A list of ImageClass objects defined in src/facenet.py
+        :param flat_paths: Flat image paths
+        :param pair_dataset_name: A name of the dataset with pair images. This dataset has to have the same structure as
+               the original one (see --data_dir parameter in train_softmax_w_smaug.py)
+        """
+        self._image_classes = image_classes
+        self._pair_dataset_name = pair_dataset_name
+        self.pair_paths = create_pair_paths(flat_paths, pair_dataset_name)
+        self.label_paths = self._create_label_paths(image_classes, pair_dataset_name)
         _, self.facenet_labels = get_image_paths_and_labels(image_classes)
-        self._img_batch = self._image_batch().make_one_shot_iterator().get_next()
-        self._img_num = len(image_classes)
+        self._img_num = len(flat_paths*2)
 
-    def __len__(self):
-        return self._img_num
-
-    def batch(self):
-        return self._sess.run(self._img_batch)
-
-    def _parse_func(self, path):
-        img = tf.read_file(path)
-        img = tf.image.decode_jpeg(img, channels=self.num_channels)
-        img = tf.image.random_flip_left_right(img)
-        img = tf.image.resize_images(img, [self.load_size, self.load_size])
-        img = (img - tf.reduce_min(img)) / (tf.reduce_max(img) - tf.reduce_min(img))
-        # img = img - tf.reduce_mean(img)
-        img = tf.random_crop(img, [self.crop_size, self.crop_size, self.num_channels])
-        img = random_black_patches(img)
-        img = img * 2 - 1
-        return img
+        super().__init__(image_paths=flat_paths,
+                         session=session,
+                         batch_size=batch_size,
+                         load_size=load_size,
+                         use_crop=use_crop,
+                         crop_size=crop_size,
+                         use_flip=use_flip,
+                         num_channels=num_channels,
+                         drop_remainder=drop_remainder,
+                         num_threads=num_threads,
+                         shuffle=shuffle,
+                         buffer_size=buffer_size,
+                         repeat=repeat)
 
     @staticmethod
-    def _change_dataset_name_in_path(path, new_name):
-        new_path_list = path.split('/')
-
-        # change dataset name
-        new_path_list[-3] = new_name
-        return '/'.join(new_path_list)
-
-    @staticmethod
-    def _create_pair_paths(image_paths, pair_dataset_name):
-        pair_paths = []
-        for path in image_paths:
-            new_path = SmaugImageData._change_dataset_name_in_path(path, pair_dataset_name)
-            pair_paths.append(new_path)
-        return pair_paths
-
-    def _create_label_paths(self):
-        for img_class in self.image_classes:
+    def _create_label_paths(image_classes, pair_dataset_name):
+        label_paths = []
+        for img_class in image_classes:
             size = len(img_class)
             paths = deque(img_class.image_paths)
             if size-1 > 0:
@@ -195,26 +180,35 @@ class SmaugImageData:
             for i, path in enumerate(paths):
                 class_switch = random.randint(1, 2)
                 if class_switch == 1:
-                    paths[i] = self._change_dataset_name_in_path(path, self.pair_dataset_name)
+                    paths[i] = _change_dataset_name_in_path(path, pair_dataset_name)
 
-            self.label_paths += list(paths)
+            label_paths += list(paths)
+        return label_paths
 
-    def _image_batch(self):
+    def _map_dataset(self):
         dataset_a = tf.data.Dataset.from_tensor_slices(self.image_paths)
         dataset_b = tf.data.Dataset.from_tensor_slices(self.pair_paths)
         labels = tf.data.Dataset.from_tensor_slices(self.label_paths)
         facenet_labels = tf.data.Dataset.from_tensor_slices(self.facenet_labels)
 
-        dataset_a = dataset_a.map(self._parse_func, num_parallel_calls=self.num_threads)
-        dataset_b = dataset_b.map(self._parse_func, num_parallel_calls=self.num_threads)
-        labels = labels.map(self._parse_func, num_parallel_calls=self.num_threads)
+        dataset_a = dataset_a.map(self._parse_func, num_parallel_calls=self._num_threads)
+        dataset_b = dataset_b.map(self._parse_func, num_parallel_calls=self._num_threads)
+        labels = labels.map(self._parse_func, num_parallel_calls=self._num_threads)
 
-        dataset = tf.data.Dataset.zip((dataset_a, dataset_b, labels, facenet_labels))
+        return tf.data.Dataset.zip((dataset_a, dataset_b, labels, facenet_labels))
 
-        if self.shuffle:
-            dataset = dataset.shuffle(self.buffer_size)
 
-        dataset = dataset.batch(self.batch_size, drop_remainder=self.drop_remainder)
-        dataset = dataset.repeat(-1).prefetch(2)
+def _change_dataset_name_in_path(path, new_name):
+    new_path_list = path.split('/')
 
-        return dataset
+    # change dataset name
+    new_path_list[-3] = new_name
+    return '/'.join(new_path_list)
+
+
+def create_pair_paths(image_paths, pair_dataset_name):
+    pair_paths = []
+    for path in image_paths:
+        new_path = _change_dataset_name_in_path(path, pair_dataset_name)
+        pair_paths.append(new_path)
+    return pair_paths

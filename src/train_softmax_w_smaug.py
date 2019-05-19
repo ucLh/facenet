@@ -108,6 +108,11 @@ def main(args):
 
         # Get a list of image paths and their labels
         image_list, label_list = facenet.get_image_paths_and_labels(train_set)
+
+        # Add pair images to total image data pool
+        image_list += create_pair_paths(image_list, args.pair_data_name)
+        label_list += label_list
+
         assert len(image_list) > 0, 'The training set should not be empty'
 
         val_image_list, val_label_list = facenet.get_image_paths_and_labels(val_set)
@@ -188,7 +193,6 @@ def main(args):
 
         correct_prediction = tf.cast(tf.equal(tf.argmax(logits, 1), tf.cast(label_batch_plh, tf.int64)), tf.float32)
         accuracy = tf.reduce_mean(correct_prediction, name='accuracy')
-        print(accuracy)
 
         # Calculate the total losses
         regularization_losses = tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)
@@ -258,10 +262,6 @@ def main(args):
             smaug_dataset = SmaugImageData(train_set, image_list, args.pair_data_name, sess,
                                            load_size=image_size[0]+crop_delta, crop_size=image_size[0],
                                            batch_size=args.smaug_batch_size)
-
-            # Add pair images to total image data pool
-            image_list += smaug_dataset.pair_paths
-            label_list += label_list
 
             if pretrained_model:
                 print('Restoring pretrained model: %s' % pretrained_model)
@@ -460,7 +460,7 @@ def train(args, sess, epoch, batch_number, image_list, label_list, index_dequeue
 
         tensor_list = [loss, train_op, step, reg_losses, prelogits, cross_entropy_mean, learning_rate, prelogits_norm,
                        accuracy, prelogits_center_loss]
-        if batch_number % 20 == 0:
+        if batch_number % 10 == 0:
             loss_, _, step_, reg_losses_, prelogits_, cross_entropy_mean_, lr_, prelogits_norm_, accuracy_, center_loss_, summary_str = sess.run(
                 tensor_list + [summary_op], feed_dict=feed_dict)
             summary_writer.add_summary(summary_str, global_step=step_)
