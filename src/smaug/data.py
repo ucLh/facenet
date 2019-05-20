@@ -10,13 +10,13 @@ import tensorflow as tf
 from facenet import get_image_paths_and_labels
 
 
-class SingleImageData:
+class ImageData:
 
     def __init__(self,
                  image_paths,
                  session,
-                 batch_size=1,
-                 load_size=286,
+                 batch_size=10,
+                 load_size=256,
                  use_crop=False,
                  crop_size=256,
                  use_flip=False,
@@ -25,7 +25,7 @@ class SingleImageData:
                  num_threads=16,
                  shuffle=False,
                  buffer_size=2048,
-                 repeat=0):
+                 repeat=1):
         self._sess = session
         self.image_paths = image_paths
         self._batch_size = batch_size
@@ -79,7 +79,7 @@ class SingleImageData:
         return dataset
 
 
-class LabeledImageData(SingleImageData):
+class LabeledImageData(ImageData):
 
     def __init__(self,
                  image_paths,
@@ -121,7 +121,7 @@ class LabeledImageData(SingleImageData):
         return dataset.zip((dataset, labels))
 
 
-class SmaugImageData(SingleImageData):
+class SmaugImageData(ImageData):
 
     def __init__(self,
                  image_classes,

@@ -44,10 +44,8 @@ from tensorflow.python.ops import data_flow_ops
 from tensorflow.python.framework import ops
 from tensorflow.python.ops import array_ops
 
-from data import *
-from models.smart_augmentation import smart_augmentation
-import utils
-import image_utils as im
+from smaug.data import *
+from smaug.smart_augmentation import smart_augmentation
 
 
 def main(args):
@@ -255,6 +253,7 @@ def main(args):
         with sess.as_default():
 
             if args.use_pair_images:
+
                 smaug_dataset = SmaugImageData(train_set, image_list, args.pair_data_name, sess,
                                                load_size=image_size[0] + crop_delta, crop_size=image_size[0])
                 image_list += smaug_dataset.pair_paths
@@ -437,7 +436,7 @@ def train(args, sess, epoch, batch_number, image_list, label_list, index_dequeue
 
         tensor_list = [loss, train_op, step, reg_losses, prelogits, cross_entropy_mean, learning_rate, prelogits_norm,
                        accuracy, prelogits_center_loss]
-        if batch_number % 20 == 0:
+        if batch_number % 2 == 0:
             loss_, _, step_, reg_losses_, prelogits_, cross_entropy_mean_, lr_, prelogits_norm_, accuracy_, center_loss_, summary_str = sess.run(
                 tensor_list + [summary_op], feed_dict=feed_dict)
             summary_writer.add_summary(summary_str, global_step=step_)
@@ -626,7 +625,7 @@ def parse_arguments(argv):
                         help='Number of epochs to run.', default=5)
     parser.add_argument('--data_dir', type=str,
                         help='Path to the data directory containing aligned face patches.',
-                        default='../datasets/current_train/')
+                        default='../datasets/small/')
     parser.add_argument('--model_def', type=str,
                         help='Model definition. Points to a module containing the definition of the inference graph.',
                         default='models.inception_resnet_v1')
@@ -720,9 +719,8 @@ def parse_arguments(argv):
     parser.add_argument('--smaug_batch_size', type=int,
                         help='Number of images in the batch that will be added to the original facenet input',
                         default=1)
-    parser.add_argument('--use_pair_images', type=bool,
-                        help='Whether to use pair images in training, or not.',
-                        default=True)
+    parser.add_argument('--use_pair_images', action='store_true',
+                        help='Whether to use pair images in training, or not.')
 
     return parser.parse_args(argv)
 

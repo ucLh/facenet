@@ -44,10 +44,9 @@ from tensorflow.python.ops import data_flow_ops
 from tensorflow.python.framework import ops
 from tensorflow.python.ops import array_ops
 
-from data import *
-from models.smart_augmentation import smart_augmentation
-import utils
-import image_utils as im
+from smaug.data import *
+from smaug.smart_augmentation import smart_augmentation
+import smaug.utils as utils
 
 
 def main(args):
@@ -75,7 +74,7 @@ def main(args):
     np.random.seed(seed=args.seed)
     random.seed(args.seed)
     dataset = facenet.get_dataset(args.data_dir)
-    # print(dataset[1].image_paths)
+
     if args.filter_filename:
         dataset = filter_dataset(dataset, os.path.expanduser(args.filter_filename),
                                  args.filter_percentile, args.filter_min_nrof_images_per_class)
@@ -142,7 +141,7 @@ def main(args):
         image_batch, label_batch = facenet.create_input_pipeline(input_queue, image_size, nrof_preprocess_threads,
                                                                  batch_size_placeholder)
 
-        tf.summary.image('image_batch', image_batch)
+        # tf.summary.image('image_batch', image_batch)
 
         # smaug_output = tf.convert_to_tensor(np.ones((1, image_size[0], image_size[0], 3)), dtype=tf.float32)
         # smaug_label = tf.convert_to_tensor(np.array([0]), dtype=tf.int32)
@@ -439,7 +438,7 @@ def train(args, sess, epoch, batch_number, image_list, label_list, index_dequeue
         # Save samples of input data
         # sample = np.concatenate((img_a, img_b), axis=0)
         # img_name = str(batch_number) + '.jpg'
-        # im.imwrite(im.immerge(sample, 1, 3), '../logs/' + img_name)
+        # utils.imwrite(utils.immerge(sample, 1, 3), '../logs/' + img_name)
 
         # Compute loss and perform a training step for Smart Augmentation
         smaug_alpha_loss, smaug_loss, _, smaug_summary = \
@@ -641,9 +640,9 @@ def parse_arguments(argv):
     parser = argparse.ArgumentParser()
 
     parser.add_argument('--logs_base_dir', type=str,
-                        help='Directory where to write event logs.', default='../logs')
+                        help='Directory where to write event logs.', default='./logs')
     parser.add_argument('--models_base_dir', type=str,
-                        help='Directory where to write trained models and checkpoints.', default='../models')
+                        help='Directory where to write trained models and checkpoints.', default='./models')
     parser.add_argument('--gpu_memory_fraction', type=float,
                         help='Upper bound on the amount of GPU memory that will be used by the process.', default=1.0)
     parser.add_argument('--pretrained_model', type=str,
@@ -652,7 +651,7 @@ def parse_arguments(argv):
                         help='Number of epochs to run.', default=5)
     parser.add_argument('--data_dir', type=str,
                         help='Path to the data directory containing aligned face patches.',
-                        default='../datasets/small/')
+                        default='./datasets/small/')
     parser.add_argument('--model_def', type=str,
                         help='Model definition. Points to a module containing the definition of the inference graph.',
                         default='models.inception_resnet_v1')
@@ -709,7 +708,7 @@ def parse_arguments(argv):
                         help='Enables logging of weight/bias histograms in tensorboard.', action='store_true')
     parser.add_argument('--learning_rate_schedule_file', type=str,
                         help='File containing the learning rate schedule that is used when learning_rate is set to to -1.',
-                        default='../data/learning_rate_schedule_classifier_casia.txt')
+                        default='./data/learning_rate_schedule_classifier_casia.txt')
     parser.add_argument('--filter_filename', type=str,
                         help='File containing image data used for dataset filtering', default='')
     parser.add_argument('--filter_percentile', type=float,
