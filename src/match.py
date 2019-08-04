@@ -92,7 +92,7 @@ def parse_arguments(argv):
     parser.add_argument('image_path', type=str, help='Image to compare')
     parser.add_argument('--data_root', type=str,
                         help='Path to data directory which needs to forward passed through the network',
-                        default='../datasets/weather-localization-training-set/')
+                        default='../../datasets/weather-localization-training-set/')
     parser.add_argument('--model', type=str,
                         help='Could be either a directory containing the meta_file and ckpt_file or a model protobuf '
                              '(.pb) file',
