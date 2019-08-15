@@ -1,3 +1,8 @@
+# a, b, c, d, e = ImageFile('a', 1), ImageFile('b', 2), ImageFile('c', 3), ImageFile('d', 4), ImageFile('e', 5)
+# img_file_list = [a, b, c, d, e]
+# img_file_list = insert_element(ImageFile('aa', 1), img_file_list, upper_bound=5)
+# print(list(map(str, img_file_list)))
+
 """Uses feature_vectors.txt file produced by process_database.py to match an input image with an image in the
    database"""
 
@@ -15,8 +20,9 @@ import json
 import numpy as np
 from PIL import Image
 from scipy import misc
+from time import time
 
-from src.smaug.data import ImageData
+from smaug.data import ImageData
 
 
 def main(args):
@@ -39,10 +45,30 @@ def main(args):
             nrof_images = len(images)
             count = 0
 
+            emb_array = None
+            path_list = []
+            line_count = 0
+            with open(args.feature_vectors_file, "r") as file:
+                for line in file:
+                    # Calculate embedding
+                    emb, path = get_embedding_and_path(line)
+
+                    if line_count % 100 == 0:
+                        print(path)
+                    line_count += 1
+
+                    if emb_array is None:
+                        emb_array = np.array(emb)
+                    else:
+                        emb_array = np.concatenate((emb_array, emb))
+                    path_list.append(path)
+
+            emb_array = emb_array.reshape((-1, 512))
+            print(emb_array.shape)
             for i in range(nrof_images):
                 img = images.batch()
                 target_path = p.abspath(image_paths[i])
-                target_class_name = get_class_name(target_path)
+                target_class_name = get_querie_class_name(target_path)
 
                 # Run forward pass to calculate embeddings
                 feed_dict = {images_placeholder: img, phase_train_placeholder: False}
@@ -50,26 +76,26 @@ def main(args):
 
                 img_file_list = []
                 upper_bound = args.top_n
+                # start_time = time()
 
-                with open("feature_vectors.txt", "r") as file:
-                    for line in file:
-                        # Calculate embedding
-                        emb, path = get_embedding_and_path(line)
+                for j in range(len(emb_array)):
 
-                        # Then calculate distance to the target
-                        dist = np.sqrt(np.sum(np.square(np.subtract(emb, target_emb[0]))))
+                    # Then calculate distance to the target
+                    dist = np.sqrt(np.sum(np.square(np.subtract(emb_array[j], target_emb[0]))))
 
-                        # Insert a score with a path
-                        img_file = ImageFile(path, dist)
-                        img_file_list = insert_element(img_file, img_file_list, upper_bound=upper_bound)
+                    # Insert a score with a path
+                    img_file = ImageFile(path_list[j], dist)
+                    img_file_list = insert_element(img_file, img_file_list, upper_bound=upper_bound)
 
-                    class_name = get_class_name(img_file_list[0].path)
-                    if class_name == target_class_name:
-                        print(target_class_name)
-                        count += 1
-                    else:
-                        print(list(map(str, img_file_list)))
+                class_name = get_querie_class_name(img_file_list[0].path)
+                if class_name == target_class_name:
+                    print(target_class_name)
+                    count += 1
+                else:
+                    print(target_class_name, list(map(str, img_file_list)))
 
+                # duration = time() - start_time
+                # print(duration)
             print(count / nrof_images)
 
 
@@ -85,6 +111,11 @@ def get_embedding_and_path(line):
 
 def get_class_name(path):
     return p.split(p.dirname(path))[-1]
+
+
+def get_querie_class_name(path):
+    dir_name = get_class_name(path)
+    return dir_name.split(r'__')[0]
 
 
 def insert_element(element, sorted_list, upper_bound=25):
@@ -123,7 +154,7 @@ class ImageFile:
         return self.score <= other.score
 
     def __str__(self):
-        return get_class_name(self.path) + ':' + str(self.score)
+        return get_querie_class_name(self.path) + ':' + str(self.score)
 
 
 def resize_and_merge(img_a, img_b):
@@ -145,14 +176,16 @@ def resize_and_merge(img_a, img_b):
 def parse_arguments(argv):
     parser = argparse.ArgumentParser()
 
-    parser.add_argument('image_path', type=str, help='Image to compare')
     parser.add_argument('--data_root', type=str,
                         help='Path to data directory which needs to be forward passed through the network',
-                        default='../datasets/current_test/')
+                        default='../datasets/queries/')
     parser.add_argument('--model', type=str,
                         help='Could be either a directory containing the meta_file and ckpt_file or a model protobuf '
                              '(.pb) file',
-                        default='../models/20190501-055657-facenet+gan+smaug')
+                        default='../models/20190812-111258-gan-series-val78')
+    parser.add_argument('--feature_vectors_file', type=str,
+                        help='Path to the file with feature vectors',
+                        default='feature_vectors_val78.txt')
     parser.add_argument('--image_size', type=int,
                         help='Image size (height, width) in pixels.',
                         default=256)
@@ -164,3 +197,5 @@ def parse_arguments(argv):
 
 if __name__ == '__main__':
     main(parse_arguments(sys.argv[1:]))
+
+
