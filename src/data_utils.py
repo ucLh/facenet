@@ -13,7 +13,7 @@ def remove(path):
 
 
 def preprocess_queries_data():
-    IMAGE_DIR = 'queries'
+    IMAGE_DIR = 'series'
     images = os.listdir(IMAGE_DIR)
     image_paths = [IMAGE_DIR + '/' + x for x in images]
     folders = list(filter(os.path.isdir, image_paths))
@@ -24,7 +24,7 @@ def preprocess_queries_data():
         name = x[1]
         sub_files = os.listdir(folder)
         for file in sub_files:
-            match_obj = re.match(r'[\w-]+\.jpg|\w+\.img|\w+\.jpeg', file)
+            match_obj = re.match(r'[\w-]+\.jpg|[\w-+]\.img|[\w-+]\.jpeg|[\w-]+\.JPG', file)
             if match_obj is None:
                 remove(folder + '/' + file)
 
@@ -49,3 +49,33 @@ def preprocess_series_data():
         # for image in sub_images:
         #    os.rename(folder + '/images/' + image, folder + '/' + image)
         # os.rmdir(folder + '/images')
+
+
+def move_needed_classes():
+    needed_classes_dir = 'queries'
+    classes_dir = 'weather-localization-training-set'
+    needed_classes = os.listdir(needed_classes_dir)
+    classes = os.listdir(classes_dir)
+    needed_classes = list(map(lambda c: c.split('__')[0], needed_classes))
+
+    for class_ in classes:
+        tmp = class_.split('__')[0]
+        if tmp in needed_classes:
+            print('mv ' + classes_dir + '/' + class_ +' series_for_test/')
+            os.system('mv ' + classes_dir + '/' + class_ +' series_for_test/')
+
+
+def get_folder2label_dict():
+
+    def get_class(dir_name):
+        return dir_name.split('__')[0]
+
+    IMAGE_DIR = '../datasets/queries'
+    image_names = os.listdir(IMAGE_DIR)
+    image_names = set(map(get_class, image_names))
+    image_names = list(image_names)
+    image_names.sort()
+
+    labels_dict = {get_class(image_names[i]): i for i in range(len(image_names))}
+
+    return labels_dict

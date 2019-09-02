@@ -1,8 +1,3 @@
-# a, b, c, d, e = ImageFile('a', 1), ImageFile('b', 2), ImageFile('c', 3), ImageFile('d', 4), ImageFile('e', 5)
-# img_file_list = [a, b, c, d, e]
-# img_file_list = insert_element(ImageFile('aa', 1), img_file_list, upper_bound=5)
-# print(list(map(str, img_file_list)))
-
 """Uses feature_vectors.txt file produced by process_database.py to match an input image with an image in the
    database"""
 
@@ -17,15 +12,24 @@ from os import path as p
 import argparse
 import facenet
 import json
+import logging
 import numpy as np
 from PIL import Image
 from scipy import misc
 from time import time
+from importlib import reload
 
 from smaug.data import ImageData
 
 
 def main(args):
+    log_dir = args.log_dir
+    # log_file_name = args.model.split()[-1] + '__' + args.feature_vectors_file
+    if not os.path.isdir(log_dir):  # Create the log directory if it doesn't exist
+        os.makedirs(log_dir)
+
+    logging.basicConfig(level=logging.DEBUG, filename='../testing_results/results.log', filemode='w')
+
     with tf.Graph().as_default():
 
         with tf.Session() as sess:
@@ -68,6 +72,7 @@ def main(args):
             for i in range(nrof_images):
                 img = images.batch()
                 target_path = p.abspath(image_paths[i])
+                target_path_short = p.split(target_path)[-1]
                 target_class_name = get_querie_class_name(target_path)
 
                 # Run forward pass to calculate embeddings
@@ -90,13 +95,16 @@ def main(args):
                 class_name = get_querie_class_name(img_file_list[0].path)
                 if class_name == target_class_name:
                     print(target_class_name)
+                    logging.info(target_class_name + '/' + target_path_short)
                     count += 1
                 else:
                     print(target_class_name, list(map(str, img_file_list)))
+                    logging.info(target_class_name + '/' + target_path_short + ' ' + str(list(map(str, img_file_list))))
 
                 # duration = time() - start_time
                 # print(duration)
             print(count / nrof_images)
+            logging.info('Total Accuracy: ' + str(count / nrof_images))
 
 
 def get_embedding_and_path(line):
@@ -182,13 +190,16 @@ def parse_arguments(argv):
     parser.add_argument('--model', type=str,
                         help='Could be either a directory containing the meta_file and ckpt_file or a model protobuf '
                              '(.pb) file',
-                        default='../models/20190812-111258-gan-series-val78')
+                        default='../models/20190830-100815')
     parser.add_argument('--feature_vectors_file', type=str,
                         help='Path to the file with feature vectors',
-                        default='feature_vectors_val78.txt')
+                        default='feature_vectors.txt')
+    parser.add_argument('--log_dir', type=str,
+                        help='Directory where to write event logs.',
+                        default='../testing_results')
     parser.add_argument('--image_size', type=int,
                         help='Image size (height, width) in pixels.',
-                        default=256)
+                        default=512)
     parser.add_argument('--top_n', type=int,
                         help='How many images to try to match',
                         default=5)
