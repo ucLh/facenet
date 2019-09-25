@@ -50,7 +50,7 @@ def main(args):
     image_size = (args.image_size, args.image_size)
     crop_delta = 16
 
-    subdir = datetime.strftime(datetime.now(), '%Y%m%d-%H%M%S')
+    subdir = datetime.strftime(datetime.now(), '%Y%m%d')
     log_dir = os.path.join(os.path.expanduser(args.logs_base_dir), subdir)
     if not os.path.isdir(log_dir):  # Create the log directory if it doesn't exist
         os.makedirs(log_dir)
@@ -246,7 +246,6 @@ def main(args):
                 step = sess.run(global_step, feed_dict=None)
                 # Train for one epoch
                 t = time.time()
-                # TODO: Remove redundant variables
                 cont = train(args, sess, epoch, batch_number, image_list, label_list, index_dequeue_op, enqueue_op,
                              image_paths_placeholder, labels_placeholder,
                              learning_rate_placeholder, phase_train_placeholder, batch_size_placeholder,
@@ -547,7 +546,7 @@ def parse_arguments(argv):
     parser.add_argument('--logs_base_dir', type=str,
                         help='Directory where to write event logs.', default='../logs')
     parser.add_argument('--models_base_dir', type=str,
-                        help='Directory where to write trained models and checkpoints.', default='../models')
+                        help='Directory where to write trained models and checkpoints.', default='../checkpoints')
     parser.add_argument('--gpu_memory_fraction', type=float,
                         help='Upper bound on the amount of GPU memory that will be used by the process.', default=1.0)
     parser.add_argument('--pretrained_model', type=str,
@@ -556,18 +555,18 @@ def parse_arguments(argv):
                         help='Number of epochs to run.', default=5)
     parser.add_argument('--data_dir', type=str,
                         help='Path to the data directory containing aligned face patches.',
-                        default='../datasets/small/')
+                        default='../datasets/weather-localization-training-set/')
     parser.add_argument('--model_def', type=str,
                         help='Model definition. Points to a module containing the definition of the inference graph.',
                         default='models.inception_resnet_v1')
     parser.add_argument('--max_nrof_epochs', type=int,
-                        help='Number of epochs to run.', default=9)
+                        help='Number of epochs to run.', default=20)
     parser.add_argument('--batch_size', type=int,
-                        help='Number of images to process in a batch.', default=20)
+                        help='Number of images to process in a batch.', default=15)
     parser.add_argument('--image_size', type=int,
-                        help='Image size (height, width) in pixels.', default=240)
+                        help='Image size (height, width) in pixels.', default=256)
     parser.add_argument('--epoch_size', type=int,
-                        help='Number of batches per epoch.', default=10)
+                        help='Number of batches per epoch.', default=5)
     parser.add_argument('--embedding_size', type=int,
                         help='Dimensionality of the embedding.', default=512)
     parser.add_argument('--random_crop',
@@ -581,7 +580,7 @@ def parse_arguments(argv):
     parser.add_argument('--use_fixed_image_standardization',
                         help='Performs fixed standardization of images.', action='store_true')
     parser.add_argument('--keep_probability', type=float,
-                        help='Keep probability of dropout for the fully connected layer(s).', default=0.8)
+                        help='Keep probability of dropout for the fully connected layer(s).', default=0.4)
     parser.add_argument('--weight_decay', type=float,
                         help='L2 weight regularization.', default=5e-4)
     parser.add_argument('--center_loss_factor', type=float,
