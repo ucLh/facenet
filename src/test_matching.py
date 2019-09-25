@@ -14,12 +14,11 @@ import facenet
 import json
 import logging
 import numpy as np
-from PIL import Image
 from scipy import misc
 from time import time
-from importlib import reload
 
 from smaug.data import ImageData
+from geo_utils import check_image_in_radius
 
 
 def main(args):
@@ -28,7 +27,9 @@ def main(args):
     if not os.path.isdir(log_dir):  # Create the log directory if it doesn't exist
         os.makedirs(log_dir)
 
-    logging.basicConfig(level=logging.DEBUG, filename='../testing_results/results.log', filemode='w')
+    logging.basicConfig(level=logging.DEBUG, filemode='w')
+    class_logger = config_logger('class_logger', '../testing_results/classes.log')
+    overall_logger = config_logger('ovrl_logger', '../testing_results/results.log')
 
     with tf.Graph().as_default():
 
@@ -69,11 +70,22 @@ def main(args):
 
             emb_array = emb_array.reshape((-1, 512))
             print(emb_array.shape)
+
+            class_true_count = 0
+            class_all_count = 1
+            last_class_name = ''
+
             for i in range(nrof_images):
                 img = images.batch()
                 target_path = p.abspath(image_paths[i])
                 target_path_short = p.split(target_path)[-1]
                 target_class_name = get_querie_class_name(target_path)
+
+                if last_class_name != target_class_name and last_class_name != '':
+                    log_class_accuracy(last_class_name, class_true_count, class_all_count, class_logger)
+                    class_all_count, class_true_count = 0, 0
+
+                last_class_name = target_class_name
 
                 # Run forward pass to calculate embeddings
                 feed_dict = {images_placeholder: img, phase_train_placeholder: False}
@@ -95,16 +107,34 @@ def main(args):
                 class_name = get_querie_class_name(img_file_list[0].path)
                 if class_name == target_class_name:
                     print(target_class_name)
-                    logging.info(target_class_name + '/' + target_path_short)
+                    overall_logger.info(target_class_name + '/' + target_path_short)
                     count += 1
+                    class_true_count += 1
                 else:
                     print(target_class_name, list(map(str, img_file_list)))
-                    logging.info(target_class_name + '/' + target_path_short + ' ' + str(list(map(str, img_file_list))))
+                    overall_logger.info(target_class_name + '/' + target_path_short + ' ' + str(list(map(str, img_file_list))))
 
+                class_all_count += 1
                 # duration = time() - start_time
                 # print(duration)
+            log_class_accuracy(last_class_name, class_true_count, class_all_count, class_logger)
             print(count / nrof_images)
-            logging.info('Total Accuracy: ' + str(count / nrof_images))
+            overall_logger.info('Total Accuracy: ' + str(count / nrof_images))
+
+
+def config_logger(logger_name, file, level=logging.INFO):
+    logger = logging.getLogger(logger_name)
+    handler1 = logging.FileHandler(file)
+    handler1.setLevel(level)
+    logger.addHandler(handler1)
+    return logger
+
+
+def log_class_accuracy(last_class_name, class_true_count, class_all_count, logger):
+    msg = 'Accuracy for {class_name}: {accuracy}'.format(
+        class_name=last_class_name, accuracy=class_true_count / class_all_count)
+    print(msg)
+    logger.info(msg)
 
 
 def get_embedding_and_path(line):
@@ -190,7 +220,7 @@ def parse_arguments(argv):
     parser.add_argument('--model', type=str,
                         help='Could be either a directory containing the meta_file and ckpt_file or a model protobuf '
                              '(.pb) file',
-                        default='../models/20190830-100815')
+                        default='../models/val84-wout-queries')
     parser.add_argument('--feature_vectors_file', type=str,
                         help='Path to the file with feature vectors',
                         default='feature_vectors.txt')
@@ -199,7 +229,7 @@ def parse_arguments(argv):
                         default='../testing_results')
     parser.add_argument('--image_size', type=int,
                         help='Image size (height, width) in pixels.',
-                        default=512)
+                        default=256)
     parser.add_argument('--top_n', type=int,
                         help='How many images to try to match',
                         default=5)
