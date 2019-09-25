@@ -102,7 +102,8 @@ def main(args):
 
                     # Insert a score with a path
                     img_file = ImageFile(path_list[j], dist)
-                    img_file_list = insert_element(img_file, img_file_list, upper_bound=upper_bound)
+                    if check_image_in_radius(target_path, path_list[j]):
+                        img_file_list = insert_element(img_file, img_file_list, upper_bound=upper_bound)
 
                 class_name = get_querie_class_name(img_file_list[0].path)
                 if class_name == target_class_name:
