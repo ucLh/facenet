@@ -18,7 +18,7 @@ from scipy import misc
 from time import time
 
 from smaug.data import ImageData
-from geo_utils import check_image_in_radius
+from geo_utils import coordinates_from_file, get_center_from_coords, check_coords_in_radius
 
 
 def main(args):
@@ -52,11 +52,12 @@ def main(args):
 
             emb_array = None
             path_list = []
+            coords_list = []
             line_count = 0
             with open(args.feature_vectors_file, "r") as file:
                 for line in file:
                     # Calculate embedding
-                    emb, path = get_embedding_and_path(line)
+                    emb, coords, path = get_embedding_and_path(line)
 
                     if line_count % 100 == 0:
                         print(path)
@@ -67,6 +68,7 @@ def main(args):
                     else:
                         emb_array = np.concatenate((emb_array, emb))
                     path_list.append(path)
+                    coords_list.append(coords)
 
             emb_array = emb_array.reshape((-1, 512))
             print(emb_array.shape)
@@ -91,19 +93,31 @@ def main(args):
                 feed_dict = {images_placeholder: img, phase_train_placeholder: False}
                 target_emb = sess.run(embeddings, feed_dict=feed_dict)
 
+                # Calculate the area of search
+                try:
+                    target_gps_coords = coordinates_from_file(target_path)
+                    center_characteristics = get_center_from_coords(target_gps_coords)
+                    target_coords_are_none = False
+                except:
+                    target_coords_are_none = True
+
                 img_file_list = []
                 upper_bound = args.top_n
-                # start_time = time()
+                start_time = time()
 
                 for j in range(len(emb_array)):
 
-                    # Then calculate distance to the target
-                    dist = np.sqrt(np.sum(np.square(np.subtract(emb_array[j], target_emb[0]))))
+                    # Check coords to be present and if so, whether they are in the target area
+                    if (coords_list[j] is None) or target_coords_are_none or \
+                            check_coords_in_radius(center_characteristics, coords_list[j]):
+                        # Then calculate distance to the target
+                        dist = np.sqrt(np.sum(np.square(np.subtract(emb_array[j], target_emb[0]))))
 
-                    # Insert a score with a path
-                    img_file = ImageFile(path_list[j], dist)
-                    if check_image_in_radius(target_path, path_list[j]):
+                        # Insert a score with a path
+                        img_file = ImageFile(path_list[j], dist)
                         img_file_list = insert_element(img_file, img_file_list, upper_bound=upper_bound)
+                    else:
+                        continue
 
                 class_name = get_querie_class_name(img_file_list[0].path)
                 if class_name == target_class_name:
@@ -116,8 +130,8 @@ def main(args):
                     overall_logger.info(target_class_name + '/' + target_path_short + ' ' + str(list(map(str, img_file_list))))
 
                 class_all_count += 1
-                # duration = time() - start_time
-                # print(duration)
+                duration = time() - start_time
+                print(duration)
             log_class_accuracy(last_class_name, class_true_count, class_all_count, class_logger)
             print(count / nrof_images)
             overall_logger.info('Total Accuracy: ' + str(count / nrof_images))
@@ -143,9 +157,10 @@ def get_embedding_and_path(line):
     line = line.strip()
     emb_dict = json.loads(line)
     path, emb = list(emb_dict.items())[0]
+    coords = emb_dict["coordinates"]
     emb = np.array(emb)
 
-    return emb, path
+    return emb, coords, path
 
 
 def get_class_name(path):

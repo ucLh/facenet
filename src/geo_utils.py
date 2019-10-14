@@ -56,19 +56,15 @@ def get_coordinates(geotags):
     return lat, lon
 
 
-def check_coords_in_radius(center, query, dist=0.2):
+def check_coords_in_radius(center_characteristics, query):
     """
-    :param center: A tuple of latitude and longitude of the center of coordinates circle
+    :param center_characteristics: A tuple of latitude_left, latitude_right, longitude_left, longitude_right bounds
+           of the center of coordinates circle
     :param query: A tuple of latitude and longitude for a query coordinates
-    :param dist: In kilometers
     :return:
     """
-    lat_center, lon_center = center
     lat_querie, lon_querie = query
-    lon1 = lon_center - dist / abs(math.cos(math.radians(lat_center)) * 111.0)  # 1 градус широты = 111 км
-    lon2 = lon_center + dist / abs(math.cos(math.radians(lat_center)) * 111.0)
-    lat1 = lat_center - (dist / 111.0)
-    lat2 = lat_center + (dist / 111.0)
+    lon1, lon2, lat1, lat2 = center_characteristics
 
     return (lat1 <= lat_querie <= lat2) and (lon1 <= lon_querie <= lon2)
 
@@ -86,10 +82,12 @@ def check_image_in_radius(center_img_path, query_img_path, dist=0.2):
         return True
 
 
-def get_center(center_img_path, dist=0.2):
-    exif_center = get_exif(center_img_path)
-    geotags_c = get_coordinates(get_geotagging(exif_center))
-    lat_center, lon_center = geotags_c
+def coordinates_from_file(img_path):
+    return get_coordinates(get_geotagging(get_exif(img_path)))
+
+
+def get_center_from_coords(center_coords, dist=0.2):
+    lat_center, lon_center = center_coords
 
     lon1 = lon_center - dist / abs(math.cos(math.radians(lat_center)) * 111.0)  # 1 градус широты = 111 км
     lon2 = lon_center + dist / abs(math.cos(math.radians(lat_center)) * 111.0)
@@ -101,4 +99,4 @@ def get_center(center_img_path, dist=0.2):
 center_img = '../datasets/series_for_test/Peterhof_Balneary__1_GalaxyJ5_8/20181219_141314.jpg'
 query_img = '../datasets/series_for_test/Peterhof_CinemaAvrora__GalaxyJ5_8/20181225_161515.jpg'
 
-print(check_image_in_radius(center_img, query_img))
+print(coordinates_from_file(center_img))

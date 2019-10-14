@@ -11,7 +11,8 @@ import argparse
 import facenet
 import json
 
-from data import ImageData
+from smaug.data import ImageData
+from geo_utils import coordinates_from_file
 
 
 def main(args):
@@ -43,7 +44,12 @@ def main(args):
                     feed_dict = {images_placeholder: img, phase_train_placeholder: False}
                     emb = sess.run(embeddings, feed_dict=feed_dict)
 
-                    line_dict = {path: emb[0].tolist()}
+                    # Get gps coordinates
+                    try:
+                        coordinates = coordinates_from_file(path)
+                    except:
+                        coordinates = None
+                    line_dict = {path: emb[0].tolist(), "coordinates": coordinates}
                     json_data = json.dumps(line_dict)
 
                     file.write(json_data)
@@ -56,11 +62,11 @@ def parse_arguments(argv):
 
     parser.add_argument('--data_root', type=str,
                         help='Path to data directory which needs to forward passed through the network',
-                        default='../datasets/weather-localization-training-set/')
+                        default='../datasets/series_for_test/')
     parser.add_argument('--model', type=str,
                         help='Could be either a directory containing the meta_file and ckpt_file or a model protobuf '
                              '(.pb) file',
-                        default='../models/20190501-055657-facenet+gan+smaug')
+                        default='../models/val84-wout-queries')
     parser.add_argument('--image_size', type=int,
                         help='Image size (height, width) in pixels.',
                         default=256)
