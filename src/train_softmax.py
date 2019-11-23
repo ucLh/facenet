@@ -44,6 +44,8 @@ from tensorflow.python.ops import data_flow_ops
 from tensorflow.python.framework import ops
 from tensorflow.python.ops import array_ops
 
+from data_from_csv import get_facenet_dataset
+
 
 def main(args):
     network = importlib.import_module(args.model_def)
@@ -69,7 +71,9 @@ def main(args):
 
     np.random.seed(seed=args.seed)
     random.seed(args.seed)
-    dataset = facenet.get_dataset(args.data_dir)
+    csv_path = '/home/luch/Programming/Python/google-landmarks-dataset/v1/train.csv'
+    images_dir = '/home/luch/Programming/Python/google-landmarks-dataset/v1/images'
+    dataset = get_facenet_dataset(csv_path, images_dir)
     # print(dataset[1].image_paths)
     if args.filter_filename:
         dataset = filter_dataset(dataset, os.path.expanduser(args.filter_filename),

@@ -258,6 +258,7 @@ def load_data(image_paths, do_random_crop, do_random_flip, image_size, do_prewhi
             img = prewhiten(img)
         img = crop(img, do_random_crop, image_size)
         img = flip(img, do_random_flip)
+        img = misc.imresize(img, (image_size, image_size), interp='bilinear')
         images[i,:,:,:] = img
     return images
 
