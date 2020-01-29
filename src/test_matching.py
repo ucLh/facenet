@@ -76,6 +76,7 @@ def main(args):
             class_true_count = 0
             class_all_count = 1
             last_class_name = ''
+            duration = 0
 
             for i in range(nrof_images):
                 img = images.batch()
@@ -102,13 +103,13 @@ def main(args):
                     target_coords_are_none = True
 
                 img_file_list = []
-                upper_bound = args.top_n
+                upper_bound = args.upper_bound
                 start_time = time()
 
                 for j in range(len(emb_array)):
 
                     # Check coords to be present and if so, whether they are in the target area
-                    if (coords_list[j] is None) or target_coords_are_none or \
+                    if (not args.use_coords) or (coords_list[j] is None) or target_coords_are_none or \
                             check_coords_in_radius(center_characteristics, coords_list[j]):
                         # Then calculate distance to the target
                         dist = np.sqrt(np.sum(np.square(np.subtract(emb_array[j], target_emb[0]))))
@@ -119,21 +120,21 @@ def main(args):
                     else:
                         continue
 
-                class_name = get_querie_class_name(img_file_list[0].path)
-                if class_name == target_class_name:
+                if top_n_accuracy(target_class_name, img_file_list, args.top_n, upper_bound):
                     print(target_class_name)
                     overall_logger.info(target_class_name + '/' + target_path_short)
                     count += 1
                     class_true_count += 1
                 else:
-                    print(target_class_name, list(map(str, img_file_list)))
-                    overall_logger.info(target_class_name + '/' + target_path_short + ' ' + str(list(map(str, img_file_list))))
+                    print(target_class_name, list(map(str, img_file_list[:5])))
+                    overall_logger.info(target_class_name + '/' + target_path_short + ' ' + str(list(map(str, img_file_list[:5]))))
 
                 class_all_count += 1
-                duration = time() - start_time
-                print(duration)
+                duration += time() - start_time
+
             log_class_accuracy(last_class_name, class_true_count, class_all_count, class_logger)
             print(count / nrof_images)
+            print(duration / nrof_images)
             overall_logger.info('Total Accuracy: ' + str(count / nrof_images))
 
 
@@ -150,6 +151,22 @@ def log_class_accuracy(last_class_name, class_true_count, class_all_count, logge
         class_name=last_class_name, accuracy=class_true_count / class_all_count)
     print(msg)
     logger.info(msg)
+
+
+def top_1_accuracy(target_class_name, img_file_list):
+    """Returns true if the first element of img_file_list is equal to target_class_name"""
+    return get_querie_class_name(img_file_list[0].path) == target_class_name
+
+
+def top_n_accuracy(target_class_name, img_file_list, n=4, upper_bound=25):
+    top_n = set()
+    i = 0
+    while len(top_n) < n and i < upper_bound:
+        class_name = get_querie_class_name(img_file_list[i].path)
+        top_n.add(class_name)
+        i += 1
+
+    return target_class_name in top_n
 
 
 def get_embedding_and_path(line):
@@ -236,7 +253,7 @@ def parse_arguments(argv):
     parser.add_argument('--model', type=str,
                         help='Could be either a directory containing the meta_file and ckpt_file or a model protobuf '
                              '(.pb) file',
-                        default='../models/val84-wout-queries')
+                        default='../models/test_pb/optimized_val_84.pb')
     parser.add_argument('--feature_vectors_file', type=str,
                         help='Path to the file with feature vectors',
                         default='feature_vectors.txt')
@@ -247,8 +264,14 @@ def parse_arguments(argv):
                         help='Image size (height, width) in pixels.',
                         default=256)
     parser.add_argument('--top_n', type=int,
+                        help='Number of plausible classes of the input image',
+                        default=1)
+    parser.add_argument('--upper_bound', type=int,
                         help='How many images to try to match',
-                        default=5)
+                        default=1)
+    parser.add_argument('--use_coords', type=bool,
+                        help='Whether to use GPS coordinates',
+                        default=False)
     return parser.parse_args(argv)
 
 
