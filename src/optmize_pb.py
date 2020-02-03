@@ -2,10 +2,10 @@ import copy
 import tensorflow as tf
 from tensorflow.core.framework import graph_pb2
 
-INPUT_GRAPH_DEF_FILE = '../models/test_pb/no_phase_train.pb'
-OUTPUT_GRAPH_DEF_FILE = '../models/test_pb/strict_img_batch.pb'
+INPUT_GRAPH_DEF_FILE = '../models/test_pb/with_resize3.pb'
+OUTPUT_GRAPH_DEF_FILE = '../models/test_pb/wout_phase.pb'
 
-c = tf.placeholder(tf.float32, shape=[1, 256, 256, 3], name='image_batch_p')
+c = tf.constant(False, dtype=bool, shape=[], name='phase_train')
 
 
 # load our graph
@@ -22,7 +22,7 @@ graph_def = load_graph(INPUT_GRAPH_DEF_FILE)
 # replacing phase train node def with constant
 new_graph_def = graph_pb2.GraphDef()
 for node in graph_def.node:
-    if node.name == 'image_batch_p':
+    if node.name == 'phase_train':
         new_graph_def.node.extend([c.op.node_def])
     else:
         new_graph_def.node.extend([copy.deepcopy(node)])

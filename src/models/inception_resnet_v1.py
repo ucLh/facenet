@@ -127,7 +127,7 @@ def reduction_b(net):
                         tower_conv2_2, tower_pool], 3)
     return net
   
-def inference(images, keep_probability, phase_train=True, 
+def inference(images, keep_probability, image_size, phase_train=True,
               bottleneck_layer_size=128, weight_decay=0.0, reuse=None):
     batch_norm_params = {
         # Decay for the moving averages.
@@ -139,12 +139,24 @@ def inference(images, keep_probability, phase_train=True,
         # Moving averages ends up in the trainable variables collection
         'variables_collections': [ tf.GraphKeys.TRAINABLE_VARIABLES ],
     }
-    
+
+    def resize_and_normalize(image_size, image_batch):
+        image_batch = tf.image.resize_images(image_batch, [256, 256])
+        image_batch = tf.map_fn(lambda image: (image - tf.reduce_min(image)) / (tf.reduce_max(image) - tf.reduce_min(image)),
+                                image_batch)
+        image_batch_resized = tf.map_fn(lambda image: image * 2 - 1, image_batch, name='image_batch_res')
+
+        return image_batch_resized
+
     with slim.arg_scope([slim.conv2d, slim.fully_connected],
                         weights_initializer=slim.initializers.xavier_initializer(), 
                         weights_regularizer=slim.l2_regularizer(weight_decay),
                         normalizer_fn=slim.batch_norm,
                         normalizer_params=batch_norm_params):
+
+        images = tf.cond(tf.logical_not(phase_train), lambda: resize_and_normalize(image_size, images), lambda: images)
+        images.set_shape([None, 256, 256, 3])
+
         return inception_resnet_v1(images, is_training=phase_train,
               dropout_keep_prob=keep_probability, bottleneck_layer_size=bottleneck_layer_size, reuse=reuse)
 

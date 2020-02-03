@@ -24,7 +24,7 @@ def main(args):
             facenet.load_model(args.model)
 
             # Get input and output tensors
-            images_placeholder = tf.get_default_graph().get_tensor_by_name("image_batch_p:0")
+            images_placeholder = tf.get_default_graph().get_tensor_by_name("image_batch_res_p:0")
             embeddings = tf.get_default_graph().get_tensor_by_name("embeddings:0")
             phase_train_placeholder = tf.get_default_graph().get_tensor_by_name("phase_train:0")
 
@@ -62,11 +62,11 @@ def parse_arguments(argv):
 
     parser.add_argument('--data_root', type=str,
                         help='Path to data directory which needs to forward passed through the network',
-                        default='../datasets/series_for_test/')
+                        default='../datasets/series_stash/')
     parser.add_argument('--model', type=str,
                         help='Could be either a directory containing the meta_file and ckpt_file or a model protobuf '
                              '(.pb) file',
-                        default='../models/val84-wout-queries')
+                        default='../models/test_pb/wout_phase.pb')
     parser.add_argument('--image_size', type=int,
                         help='Image size (height, width) in pixels.',
                         default=256)

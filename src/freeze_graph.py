@@ -55,7 +55,7 @@ def main(args):
             input_graph_def = sess.graph.as_graph_def()
             
             # Freeze the graph def
-            output_graph_def = freeze_graph_def(sess, input_graph_def, 'embeddings,label_batch_p')
+            output_graph_def = freeze_graph_def(sess, input_graph_def, 'embeddings')
 
         # Serialize and dump the output graph to the filesystem
         with tf.gfile.GFile(args.output_file, 'wb') as f:
