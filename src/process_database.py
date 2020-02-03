@@ -11,7 +11,7 @@ import argparse
 import facenet
 import json
 
-from smaug.data import ImageData
+from smaug.data import ImageDataRaw
 from geo_utils import coordinates_from_file
 
 
@@ -31,7 +31,7 @@ def main(args):
             # Load data
             dataset = facenet.get_dataset(args.data_root)
             image_paths, _ = facenet.get_image_paths_and_labels(dataset)
-            images = ImageData(image_paths, sess, load_size=args.image_size, batch_size=1)
+            images = ImageDataRaw(image_paths, sess, batch_size=1)
             nrof_images = len(images)
 
             with open("feature_vectors.txt", "w") as file:

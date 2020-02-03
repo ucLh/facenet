@@ -28,7 +28,6 @@ from __future__ import print_function
 
 from datetime import datetime
 from functools import partial
-import cv2
 import os.path
 import time
 import sys
@@ -42,7 +41,7 @@ import lfw
 import h5py
 import math
 from augmentations.augmentations import random_black_patches
-from smaug.data import LabeledImageData
+from smaug.data import LabeledImageData, LabeledImageDataRaw
 import tensorflow.contrib.slim as slim
 from tensorflow.python.ops import data_flow_ops
 from tensorflow.python.framework import ops
@@ -122,19 +121,12 @@ def main(args):
         labels_placeholder = tf.placeholder(tf.int32, shape=(None, 1), name='labels')
         control_placeholder = tf.placeholder(tf.int32, shape=(None, 1), name='control')
 
-        nrof_preprocess_threads = 4
-
-        image_batch_plh = tf.placeholder(tf.float32, shape=[None, 286, 286, 3], name='image_batch_p')
+        image_batch_plh = tf.placeholder(tf.float32, shape=[None, None, None, 3], name='image_batch_p')
         label_batch_plh = tf.placeholder(tf.int32, name='label_batch_p')
-        image_batch_resized_plh = tf.placeholder(tf.float32, shape=[None, None, None, 3], name='image_batch_res_p')
+        # image_batch_resized_plh = tf.placeholder(tf.float32, shape=[None, None, None, 3], name='image_batch_res_p')
         use_black_patches_plh = tf.placeholder(tf.bool, name="aug_patches_flag")
         use_random_crop_plh = tf.placeholder(tf.bool, name="aug_crop_flag")
         use_random_flip_plh = tf.placeholder(tf.bool, name="aug_flip_flag")
-
-        image_batch_resized = resize_images(image_batch_plh, image_size, use_black_patches_plh, use_random_crop_plh,
-                                            use_random_flip_plh)
-        # image_batch_resized.set_shape([None, 256, 256, 3])
-        # TODO
 
         print('Number of classes in training set: %d' % nrof_classes)
         print('Number of examples in training set: %d' % len(image_list))
@@ -145,7 +137,7 @@ def main(args):
         print('Building training graph')
 
         # Build the inference graph
-        prelogits, _ = network.inference(image_batch_resized_plh, args.keep_probability, image_size,
+        prelogits, _ = network.inference(image_batch_plh, args.keep_probability, image_size,
                                          phase_train=phase_train_placeholder, bottleneck_layer_size=args.embedding_size,
                                          weight_decay=args.weight_decay)
         logits = slim.fully_connected(prelogits, len(train_set), activation_fn=None,
@@ -203,9 +195,12 @@ def main(args):
         sess = tf.Session(config=config)
 
         # Create normal pipeline
-        dataset_train = LabeledImageData(image_list, label_list, sess, batch_size=args.batch_size, shuffle=False)
-        dataset_val = LabeledImageData(val_image_list, val_label_list, sess, batch_size=args.lfw_batch_size,
-                                       shuffle=False)
+        dataset_train = LabeledImageData(image_list, label_list, sess, batch_size=args.batch_size, shuffle=True,
+                                         use_flip=True, use_black_patches=True, use_crop=True)
+        dataset_val = LabeledImageDataRaw(val_image_list, val_label_list, sess, batch_size=args.lfw_batch_size,
+                                          shuffle=False)
+
+
 
         # Start running operations on the Graph.
         sess.run(tf.global_variables_initializer())
@@ -250,18 +245,13 @@ def main(args):
                 step = sess.run(global_step, feed_dict=None)
                 # Train for one epoch
                 t = time.time()
-                cont = train(args, sess, epoch, batch_number, image_list, label_list,
-                             image_paths_placeholder, labels_placeholder,
+                cont = train(args, sess, epoch, batch_number,
                              learning_rate_placeholder, phase_train_placeholder, batch_size_placeholder,
-                             image_batch_plh, label_batch_plh,
-                             control_placeholder, global_step,
+                             image_batch_plh, label_batch_plh, global_step,
                              total_loss, train_op, summary_op, summary_writer, regularization_losses,
                              args.learning_rate_schedule_file,
-                             stat, cross_entropy_mean, accuracy, learning_rate,
-                             prelogits, prelogits_center_loss, args.random_black_patches, args.random_crop, args.random_flip,
-                             prelogits_norm, args.prelogits_hist_max, args.use_fixed_image_standardization,
-                             image_batch_resized, image_batch_resized_plh, dataset_train,
-                             use_black_patches_plh, use_random_crop_plh, use_random_flip_plh)
+                             stat, cross_entropy_mean, accuracy, learning_rate, prelogits, prelogits_center_loss,
+                             prelogits_norm, args.prelogits_hist_max, dataset_train, )
                 stat['time_train'][epoch - 1] = time.time() - t
 
                 if not cont:
@@ -269,13 +259,9 @@ def main(args):
 
                 t = time.time()
                 if len(val_image_list) > 0 and ((epoch - 1) % args.validate_every_n_epochs == args.validate_every_n_epochs - 1 or epoch == args.max_nrof_epochs):
-                    validate(args, sess, epoch, val_image_list, val_label_list, image_paths_placeholder,
-                             labels_placeholder, control_placeholder,
-                             phase_train_placeholder, batch_size_placeholder,
-                             stat, total_loss, regularization_losses, cross_entropy_mean, accuracy,
-                             args.validate_every_n_epochs, args.use_fixed_image_standardization,
-                             image_batch_plh, label_batch_plh, image_batch_resized, image_batch_resized_plh,
-                             dataset_val, use_black_patches_plh, use_random_crop_plh, use_random_flip_plh)
+                    validate(args, sess, epoch, val_label_list, phase_train_placeholder, batch_size_placeholder,
+                             stat, total_loss, cross_entropy_mean, accuracy, args.validate_every_n_epochs,
+                             image_batch_plh, label_batch_plh, dataset_val)
                 stat['time_validate'][epoch - 1] = time.time() - t
 
                 # Save variables and the metagraph if it doesn't exist already
@@ -333,15 +319,13 @@ def filter_dataset(dataset, data_filename, percentile, min_nrof_images_per_class
     return filtered_dataset
 
 
-def train(args, sess, epoch, batch_number, image_list, label_list, image_paths_placeholder, labels_placeholder,
+def train(args, sess, epoch, batch_number,
           learning_rate_placeholder, phase_train_placeholder, batch_size_placeholder,
-          image_batch_plh, label_batch_plh, control_placeholder, step,
+          image_batch_plh, label_batch_plh, step,
           loss, train_op, summary_op, summary_writer, reg_losses, learning_rate_schedule_file,
           stat, cross_entropy_mean, accuracy,
-          learning_rate, prelogits, prelogits_center_loss, random_black_patches, random_crop, random_flip, prelogits_norm,
-          prelogits_hist_max, use_fixed_image_standardization,
-          image_batch_resized, image_batch_resized_plh, dataset_train,
-          use_black_patches_plh, use_random_crop_plh, use_random_flip_plh):
+          learning_rate, prelogits, prelogits_center_loss, prelogits_norm,
+          prelogits_hist_max, dataset_train,):
 
     if args.learning_rate > 0.0:
         lr = args.learning_rate
@@ -359,21 +343,21 @@ def train(args, sess, epoch, batch_number, image_list, label_list, image_paths_p
         # Process a batch of data for facenet
         image_batch, label_batch = dataset_train.batch()
 
-        feed_dict = {image_batch_plh: image_batch, use_black_patches_plh: random_black_patches,
-                     use_random_crop_plh: random_crop, use_random_flip_plh: random_flip}
-        image_batch_resized_ = sess.run(image_batch_resized, feed_dict=feed_dict)
-
         # Compute loss and perform training step for facenet
         feed_dict = {learning_rate_placeholder: lr, phase_train_placeholder: True,
                      batch_size_placeholder: args.batch_size,
-                     label_batch_plh: label_batch, image_batch_resized_plh: image_batch_resized_}
+                     label_batch_plh: label_batch, image_batch_plh: image_batch}
+        image_summary = tf.summary.image('image_batch', image_batch)
 
         tensor_list = [loss, train_op, step, reg_losses, prelogits, cross_entropy_mean, learning_rate, prelogits_norm,
                        accuracy, prelogits_center_loss]
+
         if batch_number % 2 == 0:
-            loss_, _, step_, reg_losses_, prelogits_, cross_entropy_mean_, lr_, prelogits_norm_, accuracy_, center_loss_, summary_str = sess.run(
-                tensor_list + [summary_op], feed_dict=feed_dict)
+            loss_, _, step_, reg_losses_, prelogits_, cross_entropy_mean_, \
+            lr_, prelogits_norm_, accuracy_, center_loss_, summary_str = \
+                sess.run(tensor_list + [summary_op], feed_dict=feed_dict)
             summary_writer.add_summary(summary_str, global_step=step_)
+            # summary_writer.add_summary(image_summary_, global_step=step_)
         else:
             loss_, _, step_, reg_losses_, prelogits_, cross_entropy_mean_, lr_, prelogits_norm_, accuracy_, center_loss_ = sess.run(
                 tensor_list, feed_dict=feed_dict)
@@ -403,12 +387,10 @@ def train(args, sess, epoch, batch_number, image_list, label_list, image_paths_p
     return True
 
 
-def validate(args, sess, epoch, image_list, label_list, image_paths_placeholder, labels_placeholder,
-             control_placeholder, phase_train_placeholder, batch_size_placeholder,
-             stat, loss, regularization_losses, cross_entropy_mean, accuracy, validate_every_n_epochs,
-             use_fixed_image_standardization, image_batch_plh, label_batch_plh,
-             image_batch_resized, image_batch_resized_plh,
-             dataset_val, use_black_patches_plh, use_random_crop_plh, use_random_flip_plh):
+def validate(args, sess, epoch, label_list, phase_train_placeholder, batch_size_placeholder,
+             stat, loss, cross_entropy_mean, accuracy, validate_every_n_epochs,
+             image_batch_plh, label_batch_plh, dataset_val):
+
     print('Running forward pass on validation set')
 
     nrof_batches = len(label_list) // args.lfw_batch_size
@@ -422,11 +404,8 @@ def validate(args, sess, epoch, image_list, label_list, image_paths_placeholder,
     start_time = time.time()
     for i in range(nrof_batches):
         img, label = dataset_val.batch()
-        # feed_dict = {image_batch_plh: img, use_black_patches_plh: False, use_random_crop_plh: False,
-        #              use_random_flip_plh: False}
-        # img_resized = sess.run(image_batch_resized, feed_dict=feed_dict)
         feed_dict = {phase_train_placeholder: False, batch_size_placeholder: args.lfw_batch_size,
-                     image_batch_resized_plh: img, label_batch_plh: label}
+                     image_batch_plh: img, label_batch_plh: label}
         loss_, cross_entropy_mean_, accuracy_ = sess.run([loss, cross_entropy_mean, accuracy], feed_dict=feed_dict)
         loss_array[i], xent_array[i], accuracy_array[i] = (loss_, cross_entropy_mean_, accuracy_)
         if i % 10 == 9:
@@ -518,6 +497,7 @@ def save_variables_and_metagraph(sess, saver, summary_writer, model_dir, model_n
     checkpoint_path = os.path.join(model_dir, 'model-%s.ckpt' % model_name)
     if step % save_every == 0:
         saver.save(sess, checkpoint_path, global_step=step, write_meta_graph=False)
+        print('Actually saved variables')
     save_time_variables = time.time() - start_time
     print('Variables saved in %.2f seconds' % save_time_variables)
     metagraph_filename = os.path.join(model_dir, 'model-%s.meta' % model_name)
