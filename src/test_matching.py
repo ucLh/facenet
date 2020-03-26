@@ -10,6 +10,7 @@ import sys
 import os
 from os import path as p
 import argparse
+import cv2
 import facenet
 import json
 import logging
@@ -17,7 +18,7 @@ import numpy as np
 from scipy import misc
 from time import time
 
-from smaug.data import ImageData
+from smaug.data import ImageDataRaw
 from geo_utils import coordinates_from_file, get_center_from_coords, check_coords_in_radius
 
 
@@ -46,8 +47,8 @@ def main(args):
             # Load data
             dataset = facenet.get_dataset(args.data_root)
             image_paths, _ = facenet.get_image_paths_and_labels(dataset)
-            images = ImageData(image_paths, sess, load_size=args.image_size, batch_size=1)
-            nrof_images = len(images)
+            # images = ImageDataRaw(image_paths, sess, batch_size=1)
+            nrof_images = len(image_paths)
             count = 0
 
             emb_array = None
@@ -79,7 +80,10 @@ def main(args):
             duration = 0
 
             for i in range(nrof_images):
-                img = images.batch()
+                img_orig = cv2.imread(image_paths[i])
+                img = cv2.cvtColor(img_orig, cv2.COLOR_BGR2RGB)
+                img = np.array(img)
+                img = img[np.newaxis, ...]
                 target_path = p.abspath(image_paths[i])
                 target_path_short = p.split(target_path)[-1]
                 target_class_name = get_querie_class_name(target_path)
@@ -249,11 +253,11 @@ def parse_arguments(argv):
 
     parser.add_argument('--data_root', type=str,
                         help='Path to data directory which needs to be forward passed through the network',
-                        default='../datasets/queries/')
+                        default='../datasets/queries_old/')
     parser.add_argument('--model', type=str,
                         help='Could be either a directory containing the meta_file and ckpt_file or a model protobuf '
                              '(.pb) file',
-                        default='../models/test_pb/optimized_val_84.pb')
+                        default='../models/test_pb/val84_rotated.pb')
     parser.add_argument('--feature_vectors_file', type=str,
                         help='Path to the file with feature vectors',
                         default='feature_vectors.txt')
@@ -265,10 +269,10 @@ def parse_arguments(argv):
                         default=256)
     parser.add_argument('--top_n', type=int,
                         help='Number of plausible classes of the input image',
-                        default=1)
+                        default=4)
     parser.add_argument('--upper_bound', type=int,
                         help='How many images to try to match',
-                        default=1)
+                        default=50)
     parser.add_argument('--use_coords', type=bool,
                         help='Whether to use GPS coordinates',
                         default=False)

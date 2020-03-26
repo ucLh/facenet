@@ -25,7 +25,7 @@ def main(args):
         class_name = get_class_name(path)
         image_name = get_image_name(path)
         img = cv2.imread(path)
-        img = cv2.resize(img, (286, 286))
+        img = cv2.resize(img, (args.image_size, args.image_size))
         save_path = '/home/luch/Programming/Python/facenet/datasets/resized/' + class_name + '/' + image_name
         dir_name = '/home/luch/Programming/Python/facenet/datasets/resized/' + class_name
 
@@ -50,13 +50,9 @@ def parse_arguments(argv):
     parser.add_argument('--data_root', type=str,
                         help='Path to data directory which needs to forward passed through the network',
                         default='../datasets/current_train/')
-    parser.add_argument('--model', type=str,
-                        help='Could be either a directory containing the meta_file and ckpt_file or a model protobuf '
-                             '(.pb) file',
-                        default='../models/test_pb/optimized_val_84.pb')
     parser.add_argument('--image_size', type=int,
                         help='Image size (height, width) in pixels.',
-                        default=256)
+                        default=560)
     return parser.parse_args(argv)
 
 

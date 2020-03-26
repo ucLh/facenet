@@ -39,8 +39,8 @@ def main(args):
             # Calculate target image embedding
             target_emb = sess.run(embeddings, feed_dict={images_placeholder: img, phase_train_placeholder: False})
 
-            dist_list = []
-            paths_list = []
+            min_dist = None
+            min_path = None
 
             with open("feature_vectors.txt", "r") as file:
 
@@ -54,13 +54,13 @@ def main(args):
 
                     # Then calculate distance to the target
                     dist = np.sqrt(np.sum(np.square(np.subtract(emb, target_emb[0]))))
-                    dist_list.append(dist)
-                    paths_list.append(path)
+                    if (min_dist is None) or (dist < min_dist):
+                        min_dist = dist
+                        min_path = path
 
-            ind = np.argmin(dist_list)
-            print(dist_list[ind], paths_list[ind])
+            print(min_dist, min_path)
 
-            closest_img = misc.imread(paths_list[ind], mode='RGB')
+            closest_img = misc.imread(min_path, mode='RGB')
             show_result(original_img, closest_img)
 
 
@@ -91,12 +91,12 @@ def parse_arguments(argv):
 
     parser.add_argument('image_path', type=str, help='Image to compare')
     parser.add_argument('--data_root', type=str,
-                        help='Path to data directory which needs to forward passed through the network',
-                        default='../../datasets/weather-localization-training-set/')
+                        help='Path to data directory which needs to be forward passed through the network',
+                        default='../datasets/series_for_test/')
     parser.add_argument('--model', type=str,
                         help='Could be either a directory containing the meta_file and ckpt_file or a model protobuf '
                              '(.pb) file',
-                        default='../models/20190501-055657-facenet+gan+smaug')
+                        default='../models/val84-wout-queries')
     parser.add_argument('--image_size', type=int,
                         help='Image size (height, width) in pixels.',
                         default=256)

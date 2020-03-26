@@ -85,7 +85,8 @@ class ImageData(ImageDataRaw):
         self._use_black_patches = use_black_patches
         self._use_crop = use_crop
         self._crop_size = crop_size
-        assert load_size >= crop_size
+        if use_crop:
+            assert load_size >= crop_size
         self._use_flip = use_flip
 
         super().__init__(image_paths=image_paths,

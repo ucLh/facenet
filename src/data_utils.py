@@ -13,7 +13,7 @@ def remove(path):
 
 
 def preprocess_queries_data():
-    IMAGE_DIR = 'series'
+    IMAGE_DIR = '../datasets/sss'
     images = os.listdir(IMAGE_DIR)
     image_paths = [IMAGE_DIR + '/' + x for x in images]
     folders = list(filter(os.path.isdir, image_paths))
@@ -24,8 +24,25 @@ def preprocess_queries_data():
         name = x[1]
         sub_files = os.listdir(folder)
         for file in sub_files:
-            match_obj = re.match(r'[\w-]+\.jpg|[\w-+]\.img|[\w-+]\.jpeg|[\w-]+\.JPG', file)
+            match_obj = re.match(r'[\w-]+\.jpg|[\w-]+\.img|[\w+]+\.jpeg|[\w-]+\.JPG', file)
             if match_obj is None:
+                remove(folder + '/' + file)
+
+
+def remove_augmented():
+    IMAGE_DIR = '../datasets/series_for_test_old'
+    images = os.listdir(IMAGE_DIR)
+    image_paths = [IMAGE_DIR + '/' + x for x in images]
+    folders = list(filter(os.path.isdir, image_paths))
+    paths_and_names = zip(folders, images)
+    for x in paths_and_names:
+        print(x)
+        folder = x[0]
+        name = x[1]
+        sub_files = os.listdir(folder)
+        for file in sub_files:
+            match_obj = re.match(r'\w*original\w*', file)
+            if match_obj is not None:
                 remove(folder + '/' + file)
 
 
@@ -127,4 +144,4 @@ def get_needed_labels(folders_list, labels_dict):
     return result1, result
 
 
-move_needed_classes()
+remove_augmented()

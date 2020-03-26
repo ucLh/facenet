@@ -8,8 +8,10 @@ import tensorflow as tf
 import sys
 import os
 import argparse
+import cv2
 import facenet
 import json
+import numpy as np
 
 from smaug.data import ImageDataRaw
 from geo_utils import coordinates_from_file
@@ -24,20 +26,23 @@ def main(args):
             facenet.load_model(args.model)
 
             # Get input and output tensors
-            images_placeholder = tf.get_default_graph().get_tensor_by_name("image_batch_res_p:0")
+            images_placeholder = tf.get_default_graph().get_tensor_by_name("image_batch_p:0")
             embeddings = tf.get_default_graph().get_tensor_by_name("embeddings:0")
             phase_train_placeholder = tf.get_default_graph().get_tensor_by_name("phase_train:0")
 
             # Load data
             dataset = facenet.get_dataset(args.data_root)
             image_paths, _ = facenet.get_image_paths_and_labels(dataset)
-            images = ImageDataRaw(image_paths, sess, batch_size=1)
-            nrof_images = len(images)
+            #images = ImageDataRaw(image_paths, sess, batch_size=1)
+            nrof_images = len(image_paths)
 
             with open("feature_vectors.txt", "w") as file:
 
                 for i in range(nrof_images):
-                    img = images.batch()
+                    img_orig = cv2.imread(image_paths[i])
+                    img = cv2.cvtColor(img_orig, cv2.COLOR_BGR2RGB)
+                    img = np.array(img)
+                    img = img[np.newaxis, ...]
                     path = os.path.abspath(image_paths[i])
 
                     # Run forward pass to calculate embeddings
@@ -62,11 +67,11 @@ def parse_arguments(argv):
 
     parser.add_argument('--data_root', type=str,
                         help='Path to data directory which needs to forward passed through the network',
-                        default='../datasets/series_stash/')
+                        default='../datasets/series_for_test_old/')
     parser.add_argument('--model', type=str,
                         help='Could be either a directory containing the meta_file and ckpt_file or a model protobuf '
                              '(.pb) file',
-                        default='../models/test_pb/wout_phase.pb')
+                        default='../models/test_pb/val84_rotated.pb')
     parser.add_argument('--image_size', type=int,
                         help='Image size (height, width) in pixels.',
                         default=256)
