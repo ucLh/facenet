@@ -44,15 +44,11 @@ from augmentations.augmentations import random_black_patches
 from models import efficientnet_builder
 from smaug.data import LabeledImageData, LabeledImageDataRaw
 import tensorflow.contrib.slim as slim
-from tensorflow.python.ops import data_flow_ops
-from tensorflow.python.framework import ops
-from tensorflow.python.ops import array_ops
 
 
 def main(args):
     network = importlib.import_module(args.model_def)
     image_size = (args.image_size, args.image_size)
-    crop_delta = 16
 
     subdir = datetime.strftime(datetime.now(), '%Y%m%d')
     log_dir = os.path.join(os.path.expanduser(args.logs_base_dir), subdir)
@@ -110,10 +106,6 @@ def main(args):
         assert len(image_list) > 0, 'The training set should not be empty'
 
         val_image_list, val_label_list = facenet.get_image_paths_and_labels(val_set)
-
-        # Create a queue that produces indices into the image_list and label_list
-        labels = ops.convert_to_tensor(label_list, dtype=tf.int32)
-        range_size = array_ops.shape(labels)[0]
 
         learning_rate_placeholder = tf.placeholder(tf.float32, name='learning_rate')
         batch_size_placeholder = tf.placeholder(tf.int32, name='batch_size')
@@ -268,17 +260,6 @@ def main(args):
                                              cur_val_acc, biggest_acc, args.save_best)
 
                 biggest_acc = update_biggest_acc(biggest_acc, cur_val_acc)
-
-                # Evaluate on LFW
-                t = time.time()
-                if args.lfw_dir:
-                    evaluate(sess, image_paths_placeholder, labels_placeholder, phase_train_placeholder,
-                             batch_size_placeholder, control_placeholder,
-                             embeddings, lfw_paths, actual_issame, args.lfw_batch_size,
-                             args.lfw_nrof_folds, log_dir, step, summary_writer, stat, epoch,
-                             args.lfw_distance_metric, args.lfw_subtract_mean, args.lfw_use_flipped_images,
-                             args.use_fixed_image_standardization)
-                stat['time_evaluate'][epoch - 1] = time.time() - t
 
                 print('Saving statistics')
                 with h5py.File(stat_file_name, 'w') as f:
@@ -436,72 +417,6 @@ def validate(args, sess, epoch, label_list, phase_train_placeholder, batch_size_
 
     print('Validation Epoch: %d\tTime %.3f\tLoss %2.3f\tXent %2.3f\tAccuracy %2.3f' %
           (epoch, duration, np.mean(loss_array), np.mean(xent_array), np.mean(accuracy_array)))
-
-
-def evaluate(sess,  image_paths_placeholder, labels_placeholder, phase_train_placeholder,
-             batch_size_placeholder, control_placeholder,
-             embeddings, image_paths, actual_issame, batch_size, nrof_folds, log_dir, step, summary_writer,
-             stat, epoch, distance_metric, subtract_mean, use_flipped_images, use_fixed_image_standardization):
-    start_time = time.time()
-    # Run forward pass to calculate embeddings
-    print('Runnning forward pass on LFW images')
-
-    # Enqueue one epoch of image paths and labels
-    nrof_embeddings = len(actual_issame) * 2  # nrof_pairs * nrof_images_per_pair
-    nrof_flips = 2 if use_flipped_images else 1
-    nrof_images = nrof_embeddings * nrof_flips
-    labels_array = np.expand_dims(np.arange(0, nrof_images), 1)
-    image_paths_array = np.expand_dims(np.repeat(np.array(image_paths), nrof_flips), 1)
-    control_array = np.zeros_like(labels_array, np.int32)
-    if use_fixed_image_standardization:
-        control_array += np.ones_like(labels_array) * facenet.FIXED_STANDARDIZATION
-    if use_flipped_images:
-        # Flip every second image
-        control_array += (labels_array % 2) * facenet.FLIP
-    sess.run(enqueue_op, {image_paths_placeholder: image_paths_array, labels_placeholder: labels_array,
-                          control_placeholder: control_array})
-
-    embedding_size = int(embeddings.get_shape()[1])
-    assert nrof_images % batch_size == 0, 'The number of LFW images must be an integer multiple of the LFW batch size'
-    nrof_batches = nrof_images // batch_size
-    emb_array = np.zeros((nrof_images, embedding_size))
-    lab_array = np.zeros((nrof_images,))
-    for i in range(nrof_batches):
-        feed_dict = {phase_train_placeholder: False, batch_size_placeholder: batch_size}
-        emb, lab = sess.run([embeddings, labels], feed_dict=feed_dict)
-        lab_array[lab] = lab
-        emb_array[lab, :] = emb
-        if i % 10 == 9:
-            print('.', end='')
-            sys.stdout.flush()
-    print('')
-    embeddings = np.zeros((nrof_embeddings, embedding_size * nrof_flips))
-    if use_flipped_images:
-        # Concatenate embeddings for flipped and non flipped version of the images
-        embeddings[:, :embedding_size] = emb_array[0::2, :]
-        embeddings[:, embedding_size:] = emb_array[1::2, :]
-    else:
-        embeddings = emb_array
-
-    assert np.array_equal(lab_array, np.arange(
-        nrof_images)) == True, 'Wrong labels used for evaluation, possibly caused by training examples left in the input pipeline'
-    _, _, accuracy, val, val_std, far = lfw.evaluate(embeddings, actual_issame, nrof_folds=nrof_folds,
-                                                     distance_metric=distance_metric, subtract_mean=subtract_mean)
-
-    print('Accuracy: %2.5f+-%2.5f' % (np.mean(accuracy), np.std(accuracy)))
-    print('Validation rate: %2.5f+-%2.5f @ FAR=%2.5f' % (val, val_std, far))
-    lfw_time = time.time() - start_time
-    # Add validation loss and accuracy to summary
-    summary = tf.Summary()
-    # pylint: disable=maybe-no-member
-    summary.value.add(tag='lfw/accuracy', simple_value=np.mean(accuracy))
-    summary.value.add(tag='lfw/val_rate', simple_value=val)
-    summary.value.add(tag='time/lfw', simple_value=lfw_time)
-    summary_writer.add_summary(summary, step)
-    with open(os.path.join(log_dir, 'lfw_result.txt'), 'at') as f:
-        f.write('%d\t%.5f\t%.5f\n' % (step, np.mean(accuracy), val))
-    stat['lfw_accuracy'][epoch - 1] = np.mean(accuracy)
-    stat['lfw_valrate'][epoch - 1] = val
 
 
 def save_variables_and_metagraph(sess, saver, summary_writer, model_dir, model_name, epoch, save_every,
